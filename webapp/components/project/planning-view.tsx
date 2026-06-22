@@ -33,7 +33,7 @@ export default function PlanningView({ project, onUpdate }: Props) {
 
   return (
     <div className="flex flex-col items-center justify-center py-24 gap-8 max-w-sm mx-auto text-center">
-      <StatusPill status="PLANNING" />
+      <StatusPill status={project.status === 'DRAFT' ? 'DRAFT' : 'PLANNING'} />
 
       {project.prompt ? (
         <p className="text-sm text-[#9aa3b2] italic leading-relaxed">

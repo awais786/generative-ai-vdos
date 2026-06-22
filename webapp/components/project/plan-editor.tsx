@@ -39,7 +39,7 @@ export default function PlanEditor({ project, onUpdate }: Props) {
 
   async function patchPlan(updates: Partial<ShotPlan>, extraFields?: { title?: string }) {
     setPatchError('')
-    const newPlan = { ...project.shot_plan, ...updates }
+    const newPlan = { ...(project.shot_plan ?? {}), ...updates }
     const body: Record<string, unknown> = { shot_plan: newPlan }
     if (extraFields?.title !== undefined) body.title = extraFields.title
 

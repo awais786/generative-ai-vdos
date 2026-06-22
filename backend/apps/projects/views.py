@@ -87,6 +87,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             # Replay all existing logs so late-joining clients catch up.
             for log in JobLog.objects.filter(project=project).order_by("created_at"):
                 payload = json.dumps({
+                    "type": "log",
                     "stage": log.stage,
                     "level": log.level,
                     "message": log.message,

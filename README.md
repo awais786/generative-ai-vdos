@@ -32,7 +32,7 @@ Turn a rough idea (or a full script) into a finished, narrated 1080p video — a
 
 ## Requirements
 
-- **macOS or Linux** with Python 3.9+
+- **macOS or Linux** with Python 3.13+
 - **FFmpeg with libass** (for burned-in captions):
   - macOS: `brew install ffmpeg-full && brew link --overwrite ffmpeg-full`
     (plain `ffmpeg` from Homebrew lacks the `subtitles` filter)
@@ -198,7 +198,7 @@ task queue, how edge-tts works without a key, and FFmpeg's four passes — see
   "scenes": [
     {
       "narration": "What would you do if the cops were closing in?",   // the spoken line
-      "image_prompt": "{thief} crouching by the locker, picking the lock",
+      "media_prompt": "{thief} crouching by the locker, picking the lock",
       "motion": "{thief} is talking, lips moving as he speaks",         // optional, drives animation
       "voice": "en-US-BrianNeural",          // optional, per-scene speaker (dialogue)
       "on_screen_text": "Caught!",           // optional, styled title overlay
@@ -288,26 +288,51 @@ Drop royalty-free mp3s into `music/<mood>/` — the assembler picks one matching
 
 A Django + Next.js interface for creating and managing video projects through a browser.
 
+### Prerequisites
+
+- Python 3.13+
+- Node.js 18+ (for the Next.js frontend)
+- An AWS Cognito user pool with a hosted UI app client ([create one](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-app-integration.html)) — the web app delegates all auth (registration, login, password reset) to Cognito
+
 ### Setup
 
 ```bash
-make install-web       # install Python webapp deps + scaffold Next.js (run once)
+make install-web       # install Python + Node deps, scaffold Next.js (run once)
 make migrate           # create the database tables
 make backend           # Django API on :8000
-make frontend          # Next.js on :3000 (separate terminal)
+make frontend          # Next.js on :3000 (run in a second terminal)
 ```
 
-Additional env vars needed in `.env`:
+### Environment variables
+
+Add these to your `.env` (on top of any pipeline keys you already have):
+
+**Auth (required)**
+
+| Variable | Description | Example |
+|---|---|---|
+| `COGNITO_DOMAIN` | Cognito hosted UI domain | `https://mypool.auth.us-east-1.amazoncognito.com` |
+| `COGNITO_APP_CLIENT_ID` | App client ID | from Cognito console |
+| `COGNITO_APP_CLIENT_SECRET` | App client secret | from Cognito console |
+| `COGNITO_REDIRECT_URI` | OAuth callback URL registered in Cognito | `http://localhost:8000/api/auth/callback` |
+| `COGNITO_LOGOUT_REDIRECT_URI` | Post-logout redirect registered in Cognito | `http://localhost:3000` |
+| `FRONTEND_URL` | Frontend origin (default: `http://localhost:3000`) | `http://localhost:3000` |
+| `DJANGO_SECRET_KEY` | Any random string for dev; use a strong secret in production | |
+
+**Storage (required for image uploads)**
 
 | Variable | Description |
 |---|---|
-| `COGNITO_DOMAIN` | Cognito hosted UI domain, e.g. `https://mypool.auth.us-east-1.amazoncognito.com` |
-| `COGNITO_APP_CLIENT_ID` | App client ID from Cognito |
-| `COGNITO_APP_CLIENT_SECRET` | App client secret from Cognito |
-| `COGNITO_REDIRECT_URI` | `http://localhost:8000/api/auth/callback` |
-| `COGNITO_LOGOUT_REDIRECT_URI` | `http://localhost:3000` |
-| `FRONTEND_URL` | `http://localhost:3000` (default if omitted) |
-| `DJANGO_SECRET_KEY` | Any random string for dev; required in production |
+| `AWS_STORAGE_BUCKET_NAME` | S3 bucket for generated images and audio |
+| `AWS_S3_REGION_NAME` | Bucket region (default: `us-east-1`) |
+| `AWS_ACCESS_KEY_ID` | IAM key with `s3:PutObject` / `s3:GetObject` on the bucket |
+| `AWS_SECRET_ACCESS_KEY` | IAM secret |
+
+**Optional**
+
+| Variable | Description |
+|---|---|
+| `CELERY_BROKER_URL` | Redis URL (e.g. `redis://localhost:6379/0`). Without this, tasks run in a background thread in dev mode. Required in production for real Celery workers and live SSE log streaming. |
 
 ### Auth flow
 
@@ -331,11 +356,20 @@ Browser → GET /api/auth/logout → clears session + Cognito logout
 | `GET\|POST` | `/api/auth/logout` | Clear session + Cognito logout |
 | `GET` | `/api/projects/` | List current user's projects |
 | `POST` | `/api/projects/` | Create a project |
-| `GET` | `/api/projects/{id}/` | Project detail |
+| `GET` | `/api/projects/{id}/` | Project detail (includes scenes) |
 | `PATCH` | `/api/projects/{id}/` | Update project |
 | `DELETE` | `/api/projects/{id}/` | Delete project |
-| `GET` | `/api/projects/{id}/logs/` | Pipeline job logs for a project |
-| `GET` | `/api/projects/{id}/scenes/` | Scenes for a project |
+| `POST` | `/api/projects/{id}/approve/` | Approve plan → start generation |
+| `POST` | `/api/projects/{id}/refine/` | Revise plan with a text instruction |
+| `GET` | `/api/projects/{id}/logs/?after={pk}` | Pipeline job logs (poll; `after` returns only rows newer than that id) |
+| `GET` | `/api/projects/{id}/events/` | SSE stream (live when Redis is configured) |
+| `POST` | `/api/projects/{id}/regenerate-images/` | Re-queue all scene images |
+| `POST` | `/api/projects/{id}/reassemble/` | Rebuild final video from existing audio/images |
+| `GET` | `/api/projects/{id}/download/` | Download `final.mp4` |
+| `GET` | `/api/projects/{id}/scenes/` | List scenes |
+| `GET\|PATCH` | `/api/projects/{id}/scenes/{index}/` | Scene detail / update prompt or narration |
+| `POST` | `/api/projects/{id}/scenes/{index}/regenerate/` | Re-generate a single scene's image |
+| `POST` | `/api/projects/{id}/scenes/{index}/revoice/` | Re-generate a single scene's voiceover |
 
 ### Running tests
 
@@ -344,6 +378,16 @@ make test         # full suite (Django + pipeline)
 # or just Django:
 source .venv/bin/activate && cd backend && python manage.py test apps
 ```
+
+### Pre-commit hook (contributors)
+
+A zero-dependency hook blocks commits that accidentally include API keys, `.env` files, or PEM blocks:
+
+```bash
+git config core.hooksPath scripts/git-hooks
+```
+
+Run once per clone. If it false-positives on a value, fix the value or filename; `--no-verify` is a last resort.
 
 ## Not yet built
 
