@@ -1,5 +1,6 @@
 import os
 from .base import *  # noqa: F401, F403
+from .base import env_csv, require_cognito
 
 DEBUG = True
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-insecure-key-change-in-prod")

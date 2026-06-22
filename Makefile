@@ -25,13 +25,13 @@ install: ffmpeg sync env
 	@echo "  3. python -m pipeline.refine \"your video idea\""
 
 sync: pyproject.toml
-	uv sync
+	uv sync --all-extras
 
 $(VENV): pyproject.toml
-	uv sync
+	uv sync --all-extras
 
 install-web: ffmpeg env
-	uv sync --extra webapp
+	uv sync --all-extras
 	@if [ -d webapp ]; then \
 		echo "webapp/ already exists - skipping scaffold"; \
 	else \
@@ -42,11 +42,11 @@ install-web: ffmpeg env
 	@echo "Web deps ready. Run: make migrate && make backend (then make frontend in another shell)"
 
 migrate: $(VENV)
-	uv sync --extra webapp
+	uv sync --all-extras
 	$(MANAGE) migrate
 
 backend:
-	uv sync --extra webapp
+	uv sync --all-extras
 	$(MANAGE) runserver 8000
 
 frontend:
@@ -57,7 +57,7 @@ frontend:
 	fi
 
 prod:
-	uv sync --extra webapp
+	uv sync --all-extras
 	@command -v redis-cli >/dev/null 2>&1 || (echo "ERROR: redis not found - brew install redis" && exit 1)
 	@redis-cli ping >/dev/null 2>&1 || (echo "ERROR: Redis not running - brew services start redis" && exit 1)
 	$(MANAGE) collectstatic --no-input
@@ -67,7 +67,7 @@ prod:
 	$(VENV)/bin/gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2
 
 test:
-	uv sync --extra webapp
+	uv sync --all-extras
 	$(MANAGE) test apps
 	$(PY) -m pytest tests/test_pipeline_isolation.py
 	$(PY) -m tests.test_expand

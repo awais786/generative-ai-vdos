@@ -4,11 +4,11 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 
-const IMAGE_BACKENDS = [
-  { value: '', label: 'qwen — free (env default)' },
-  { value: 'flux', label: 'flux — free tier' },
-  { value: 'gpt-image-1', label: 'gpt-image-1 — paid' },
-  { value: 'placeholder', label: 'placeholder' },
+const IMAGE_MODELS = [
+  { value: 'qwen-image-2.0', label: 'Qwen Image 2.0 — free' },
+  { value: 'flux-schnell',   label: 'Flux Schnell — free' },
+  { value: 'pexels',         label: 'Pexels Stock — free' },
+  { value: 'gpt-image-1',    label: 'GPT Image 1 — paid' },
 ]
 
 const VOICES = [
@@ -32,7 +32,7 @@ export default function ProjectForm() {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [prompt, setPrompt] = useState('')
-  const [imageBackend, setImageBackend] = useState('')
+  const [imageModel, setImageModel] = useState('qwen-image-2.0')
   const [voice, setVoice] = useState('en-US-AndrewNeural')
   const [music, setMusic] = useState('calm')
   const [animate, setAnimate] = useState(false)
@@ -57,7 +57,7 @@ export default function ProjectForm() {
           music,
           animate,
         }
-        if (imageBackend) body.image_backend = imageBackend
+        body.image_model = imageModel
 
         const res = await fetch('/api/projects/', {
           method: 'POST',
@@ -100,13 +100,13 @@ export default function ProjectForm() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
-          <label className="block text-xs text-[#9aa3b2] mb-1.5">Image backend</label>
+          <label className="block text-xs text-[#9aa3b2] mb-1.5">Image model</label>
           <select
-            value={imageBackend}
-            onChange={e => setImageBackend(e.target.value)}
+            value={imageModel}
+            onChange={e => setImageModel(e.target.value)}
             className={SELECT_CLASS}
           >
-            {IMAGE_BACKENDS.map(opt => (
+            {IMAGE_MODELS.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>

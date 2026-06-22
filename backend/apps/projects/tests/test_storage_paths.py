@@ -41,7 +41,6 @@ class UploadToPathStructureTest(TestCase):
         key = self.scene.media_path.name
         self.assertTrue(key.startswith(f"{self.owner.id}/{self.project.id}/images/"), key)
 
-
     def test_different_users_have_different_prefixes(self):
         owner2 = UserProfile.objects.create(cognito_sub="sub-paths-2", email="sub-paths-2@test.com")
         project2 = _project(owner2)

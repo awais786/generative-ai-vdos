@@ -1,5 +1,4 @@
 import logging
-import os
 
 from celery import shared_task
 
@@ -21,8 +20,6 @@ from apps.projects.utils import (
 from pipeline.schema import ShotPlan
 from pipeline.script_agent import generate_shot_plan, revise_shot_plan
 from pipeline.styles import PRESETS
-from apps.projects.utils import get_work_dir, log_event
-from apps.storage import storage_provider
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +70,11 @@ def run_plan_stage(self, project_id):
 
         publish_event(project_id, Stage.PLAN, Level.INFO, f"Generating shot plan with {model_id}")
         plan = generate_shot_plan(project.prompt, model=model_id, style=style,
+                                  animate=project.animate,
                                   provider=provider_code, api_key=secure_key)
 
         publish_event(project_id, Stage.PLAN, Level.INFO, "Polishing image prompts")
-        plan = polish_plan(plan, model_id, provider_code, secure_key)
+        plan = polish_plan(plan, model_id, provider_code, secure_key, animate=project.animate)
         save_plan(project, plan)
 
         publish_event(project_id, Stage.PLAN, Level.INFO, f"Shot plan ready — {len(plan.scenes)} scenes")
@@ -106,7 +104,18 @@ def run_refine_stage(self, project_id, instruction):
         model_id = llm.model_id
         provider_code = llm.provider.code
         secure_key = resolve_secure_key(project.owner, llm.provider)
-        current_plan = ShotPlan(**project.shot_plan)
+        plan_data = {**(project.shot_plan or {})}
+        plan_data["scenes"] = [
+            {
+                "media_prompt": s.media_prompt,
+                "narration": s.narration,
+                "negative_prompt": s.negative_prompt or None,
+                "animate": s.animate,
+                "on_screen_text": s.on_screen_text or None,
+            }
+            for s in project.scenes.order_by("index")
+        ]
+        current_plan = ShotPlan.model_validate(plan_data)
 
         project.transition_status(Status.PLANNING)
 
@@ -115,7 +124,7 @@ def run_refine_stage(self, project_id, instruction):
                                 provider=provider_code, api_key=secure_key)
 
         publish_event(project_id, Stage.PLAN, Level.INFO, "Polishing image prompts")
-        plan = polish_plan(plan, model_id, provider_code, secure_key)
+        plan = polish_plan(plan, model_id, provider_code, secure_key, animate=project.animate)
         save_plan(project, plan)
 
         publish_event(project_id, Stage.PLAN, Level.INFO, f"Revised plan ready — {len(plan.scenes)} scenes")

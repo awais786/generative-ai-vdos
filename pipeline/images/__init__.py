@@ -101,13 +101,22 @@ def generate_scene_image(
     failures fall through the remaining providers; an explicitly forced backend
     fails loudly."""
     scene = plan.scenes[index]
-    scene_prompt = plan.expand(scene.image_prompt, scene_outfit=scene.outfit, include_style_overhead=True)
-    chars_in_scene = plan.characters_in(scene.image_prompt)
+    scene_prompt = plan.expand(scene.media_prompt, scene_outfit=scene.outfit, include_style_overhead=True)
+    chars_in_scene = plan.characters_in(scene.media_prompt)
+    char_map = {c.name: c for c in plan.characters}
+
     if len(chars_in_scene) >= 3:
-        char_map = {c.name: c for c in plan.characters}
         short_names = [" ".join(char_map[n].description.split()[:4])
                        for n in chars_in_scene if n in char_map]
         scene_prompt += f". The scene must include all: {', '.join(short_names)}"
+    elif len(chars_in_scene) >= 2:
+        # Anchor gender/identity for 2-character scenes — prevents the image model
+        # from defaulting both characters to the same gender.
+        anchors = [char_map[n].description.split(".")[0].split(",")[0]
+                   for n in chars_in_scene if n in char_map]
+        if anchors:
+            scene_prompt += f". Characters present: {'; '.join(anchors)}"
+
     prompt = f"{plan.style_prefix}, {scene_prompt}"
 
     char_negatives = [
@@ -121,7 +130,7 @@ def generate_scene_image(
     ])) or None
 
     if char_refs and not scene.reference_image and hasattr(primary, "edit"):
-        named = [n for n in plan.characters_in(scene.image_prompt) if n in char_refs]
+        named = [n for n in plan.characters_in(scene.media_prompt) if n in char_refs]
         refs = [char_refs[n] for n in named][:3]
         if refs:
             if len(refs) == 1:
@@ -187,7 +196,7 @@ def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None) -
     if plan.characters:
         print("  images: character check (same description substituted in every scene):")
         for i, scene in enumerate(plan.scenes):
-            chars = plan.characters_in(scene.image_prompt)
+            chars = plan.characters_in(scene.media_prompt)
             print(f"    scene {i}: {', '.join(chars) if chars else '-'}")
     refs = character_refs(plan, primary, out_dir)
     paths = []

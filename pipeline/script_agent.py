@@ -300,13 +300,22 @@ def generate_shot_plan(
     topic: str,
     model: str = "claude-haiku-4-5",
     style: dict | None = None,
+    animate: bool = False,
     provider: str | None = None,
     api_key: SecureString | None = None,
 ) -> ShotPlan:
     from .styles import inject_style_instruction
-    style_extra = inject_style_instruction(style) if style else None
+    extras = []
+    if style:
+        extras.append(inject_style_instruction(style))
+    if not animate:
+        extras.append(
+            "ANIMATION DISABLED: The user has not requested animation. "
+            "Set animate=false on ALL scenes — do not animate any scene regardless of content."
+        )
+    system_extra = "\n\n".join(extras) if extras else None
     return _parse_with_llm(f"Topic / rough script:\n\n{topic}", model,
-                           system_extra=style_extra, provider=provider, api_key=api_key)
+                           system_extra=system_extra, provider=provider, api_key=api_key)
 
 
 def polish_image_prompts(
@@ -318,12 +327,15 @@ def polish_image_prompts(
     return _parse_with_llm(
         "Here is an existing shot plan JSON:\n\n"
         f"{plan.model_dump_json(indent=2)}\n\n"
-        "Rewrite ONLY each scene's image_prompt as an expert image-generation prompt, "
+        "Rewrite ONLY each scene's media_prompt field as an expert image-generation prompt, "
         "under ~60 words: add a shot type and camera angle, lighting, and a color/mood "
-        "note, keeping the scene's subject and action unchanged. Keep {name} character "
-        "placeholders EXACTLY as written — never expand, reword, or remove them. Return "
-        "the COMPLETE plan with every other field (narration, voice, motion, characters, "
-        "title, tags, ...) unchanged.",
+        "note, keeping the scene's subject and action unchanged. "
+        "CRITICAL: Keep every {name} character placeholder EXACTLY as written — "
+        "never expand them into descriptions, never reword, never remove them. "
+        "The placeholder names MUST appear verbatim (e.g. {alice}, {bob}) so the "
+        "pipeline can inject the correct character description at generation time. "
+        "Return the COMPLETE plan with every other field (narration, voice, motion, "
+        "characters, title, tags, ...) unchanged.",
         model, provider=provider, api_key=api_key,
     )
 
@@ -331,6 +343,7 @@ def polish_image_prompts(
 def consistency_review(
     plan: ShotPlan,
     model: str = "claude-haiku-4-5",
+    animate: bool = True,
     provider: str | None = None,
     api_key: SecureString | None = None,
 ) -> ShotPlan:
@@ -368,8 +381,13 @@ def consistency_review(
         "character or animal (e.g. 'the size of a small bird', 'as big as a cat'), rewrite it "
         "using absolute terms only (e.g. 'oversized', 'palm-sized', 'enormous'). The image "
         "model will draw the compared thing.\n\n"
-        "6. ANIMATE CAP: At most 2 scenes may have animate=true. If more than 2 are set, "
-        "set the least important ones back to false.\n\n"
+        + (
+            "6. ANIMATE CAP: At most 2 scenes may have animate=true. If more than 2 are set, "
+            "set the least important ones back to false.\n\n"
+            if animate else
+            "6. ANIMATION DISABLED: The user has NOT enabled animation for this project. "
+            "Every scene MUST have animate=false. If any scene has animate=true, set it to false.\n\n"
+        ) +
         "7. OUTFIT CONSISTENCY: If a character has outfits defined, verify that every "
         "outfit value repeats the full identity (face, hair, build, skin) from the "
         "character's description — only clothing should differ. Also verify that every "

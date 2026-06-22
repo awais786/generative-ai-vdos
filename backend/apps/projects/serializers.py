@@ -3,14 +3,34 @@ from rest_framework import serializers
 from apps.projects.models import JobLog, LLMModel, Project, Scene
 
 
+def _model_slug(capability):
+    return serializers.SlugRelatedField(
+        slug_field="model_id",
+        queryset=LLMModel.objects.filter(capability=capability, is_active=True),
+        required=False,
+        allow_null=True,
+    )
+
+
 class SceneSerializer(serializers.ModelSerializer):
     class Meta:
         model = Scene
         fields = [
+            "id", "index", "narration", "media_prompt", "animate",
+            "on_screen_text", "negative_prompt",
+            "media_path", "image_status", "image_provider",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = [
             "id", "index", "media_path", "image_status",
             "image_provider", "created_at", "updated_at",
         ]
-        read_only_fields = fields
+
+
+class SceneUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Scene
+        fields = ["narration", "media_prompt", "animate", "on_screen_text", "negative_prompt"]
 
 
 class JobLogSerializer(serializers.ModelSerializer):
@@ -34,6 +54,9 @@ class LLMModelSerializer(serializers.ModelSerializer):
 
 class ProjectSerializer(serializers.ModelSerializer):
     scenes = SceneSerializer(many=True, read_only=True)
+    plan_model = _model_slug("plan")
+    image_model = _model_slug("image")
+    video_model = _model_slug("video")
 
     class Meta:
         model = Project
@@ -50,6 +73,10 @@ class ProjectSerializer(serializers.ModelSerializer):
 
 
 class ProjectCreateSerializer(serializers.ModelSerializer):
+    plan_model = _model_slug("plan")
+    image_model = _model_slug("image")
+    video_model = _model_slug("video")
+
     class Meta:
         model = Project
         fields = [

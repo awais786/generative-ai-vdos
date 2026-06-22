@@ -2,7 +2,7 @@
 import re
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 MAX_ANIMATED_SCENES = 2  # hard cap — animating costs DashScope credit
 MAX_PROMPT_CHARS = 1000
@@ -46,9 +46,10 @@ class Character(BaseModel):
 
 class Scene(BaseModel):
     narration: str = Field(description="Voiceover text for this scene, 1-3 sentences.")
-    image_prompt: str = Field(
+    media_prompt: str = Field(
+        validation_alias=AliasChoices("media_prompt", "image_prompt"),
         description="Visual description for image generation. Concrete and specific; "
-        "no text rendering requests. The global style_prefix is prepended automatically."
+        "no text rendering requests. The global style_prefix is prepended automatically.",
     )
     on_screen_text: Optional[str] = Field(
         default=None, description="Optional short overlay text (max ~6 words)."
@@ -62,7 +63,7 @@ class Scene(BaseModel):
         default=None,
         description="Optional motion description for the animate stage, e.g. "
         "'the girl is talking, lips moving as she speaks, gesturing with her hands'. "
-        "Default: gentle cinematic motion derived from image_prompt.",
+        "Default: gentle cinematic motion derived from media_prompt.",
     )
     animate: bool = Field(
         default=False,

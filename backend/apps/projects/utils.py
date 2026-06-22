@@ -1,9 +1,9 @@
 import logging
+import tempfile
 from pathlib import Path
 
 from django.conf import settings
-from django.core.files.base import ContentFile
-from django.core.files.storage import default_storage
+from apps.storage import storage_provider
 from django.db import transaction
 
 from apps.accounts.models import UserAPIKey
@@ -42,17 +42,18 @@ def resolve_plan_model(project):
     return llm
 
 
-def polish_plan(plan, model_id, provider_code, secure_key):
+def polish_plan(plan, model_id, provider_code, secure_key, animate=True):
     plan = polish_image_prompts(plan, model=model_id,
                                 provider=provider_code, api_key=secure_key)
-    plan = consistency_review(plan, model=model_id,
+    plan = consistency_review(plan, model=model_id, animate=animate,
                               provider=provider_code, api_key=secure_key)
     return plan
 
 
 def save_plan(project, plan):
     with transaction.atomic():
-        project.shot_plan = plan.model_dump()
+        # Scenes are the DB source of truth; shot_plan stores only plan-level metadata.
+        project.shot_plan = plan.model_dump(exclude={"scenes"})
         project.title = plan.title
         project.save(update_fields=["shot_plan", "title", "updated_at"])
 
@@ -62,7 +63,7 @@ def save_plan(project, plan):
                 project=project,
                 index=i,
                 narration=scene.narration,
-                media_prompt=scene.image_prompt,
+                media_prompt=scene.media_prompt,
                 on_screen_text=scene.on_screen_text or "",
                 negative_prompt=scene.negative_prompt or "",
                 animate=scene.animate,
@@ -101,7 +102,20 @@ def fail_project(project, project_id, stage, exc):
 
 def generate_scene(project, scene, scene_index):
     project_id = project.id
-    plan = ShotPlan(**project.shot_plan)
+
+    # Build ShotPlan from plan-level metadata + DB scenes (single source of truth).
+    plan_data = {**(project.shot_plan or {})}
+    plan_data["scenes"] = [
+        {
+            "media_prompt": s.media_prompt,
+            "narration": s.narration,
+            "negative_prompt": s.negative_prompt or None,
+            "animate": s.animate,
+            "on_screen_text": s.on_screen_text or None,
+        }
+        for s in Scene.objects.filter(project=project).order_by("index")
+    ]
+    plan = ShotPlan.model_validate(plan_data)
 
     llm = project.image_model
     if not llm:
@@ -116,6 +130,7 @@ def generate_scene(project, scene, scene_index):
         project_id, Stage.IMAGES, Level.INFO,
         f"Generating image for scene {scene_index} via {provider.name} ({llm.model_id})",
         scene_index=scene_index,
+        image_status=ImageStatus.RUNNING,
     )
 
     data, used = generate_scene_image(
@@ -125,13 +140,15 @@ def generate_scene(project, scene, scene_index):
         model=llm.model_id,
     )
 
-    if scene.media_path and default_storage.exists(scene.media_path):
-        default_storage.delete(scene.media_path)
+    if scene.media_path:
+        scene.media_path.delete(save=False)
 
-    storage_path = f"scenes/{project_id}/scene_{scene_index:02d}.png"
-    saved_name = default_storage.save(storage_path, ContentFile(data))
+    filename = f"scene_{scene_index:02d}.png"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir) / filename
+        tmp_path.write_bytes(data)
+        storage_provider.upload(scene.media_path, tmp_path, save=False)
 
-    scene.media_path = saved_name
     scene.image_status = ImageStatus.DONE
     scene.image_provider = used.name
     scene.save(update_fields=["media_path", "image_status", "image_provider", "updated_at"])
@@ -139,5 +156,6 @@ def generate_scene(project, scene, scene_index):
         project_id, Stage.IMAGES, Level.INFO,
         f"Scene {scene_index} image done via {used.name}",
         scene_index=scene_index,
+        image_status=ImageStatus.DONE,
     )
-    return saved_name
+    return scene.media_path.name

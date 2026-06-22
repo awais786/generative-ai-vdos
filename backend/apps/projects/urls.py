@@ -13,13 +13,18 @@ urlpatterns = router.urls + [
         name="project-scenes-list",
     ),
     path(
-        "projects/<uuid:project_pk>/scenes/<int:pk>/",
-        SceneViewSet.as_view({"get": "retrieve"}),
+        "projects/<uuid:project_pk>/scenes/<int:index>/",
+        SceneViewSet.as_view({"get": "retrieve", "patch": "partial_update"}),
         name="project-scenes-detail",
     ),
     path(
-        "projects/<uuid:project_pk>/scenes/<int:pk>/media-urls/",
+        "projects/<uuid:project_pk>/scenes/<int:index>/media-urls/",
         SceneViewSet.as_view({"get": "media_urls"}),
         name="project-scenes-media-urls",
+    ),
+    path(
+        "projects/<uuid:project_pk>/scenes/<int:index>/regenerate/",
+        SceneViewSet.as_view({"post": "regenerate"}),
+        name="project-scenes-regenerate",
     ),
 ]

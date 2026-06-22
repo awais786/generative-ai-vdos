@@ -59,6 +59,7 @@ def scene_media_upload_path(instance: "Scene", filename) -> str:
     else:
         return f"{instance.project.owner_id}/{instance.project.id}/images/{filename}"
 
+
 class Project(TimestampMixin):
     Status = Status
     ImageStatus = ImageStatus

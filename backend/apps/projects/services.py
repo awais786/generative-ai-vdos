@@ -83,4 +83,22 @@ class ProjectService:
             level=Level.INFO,
             message="Project created.",
         )
+        transaction.on_commit(
+            lambda: _dispatch_plan_stage(str(project.id))
+        )
         return project
+
+
+def _eager_thread(fn, *args) -> None:
+    """In eager (dev) mode run fn in a daemon thread so the HTTP response returns first."""
+    from django.conf import settings
+    if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        import threading
+        threading.Thread(target=fn, args=args, daemon=True).start()
+    else:
+        fn(*args)
+
+
+def _dispatch_plan_stage(project_id: str) -> None:
+    from .tasks import run_plan_stage
+    _eager_thread(run_plan_stage.delay, project_id)
