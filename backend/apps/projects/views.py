@@ -198,8 +198,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 {"detail": f"Cannot reassemble from {project.status} state."},
                 status=status.HTTP_409_CONFLICT,
             )
-        project.transition_status(Status.GENERATING)
-        transaction.on_commit(lambda: _eager_thread(run_assemble_stage.delay, str(project.id)))
+        project.status = Status.GENERATING
+        project.save(update_fields=["status", "updated_at"])
+        _eager_thread(run_assemble_stage.delay, str(project.id))
         return Response(ProjectSerializer(project).data, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["get"])
