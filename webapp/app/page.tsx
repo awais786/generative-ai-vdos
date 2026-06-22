@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation'
+import { redirectTo } from '@/lib/public-origin'
 
 export default function RootPage() {
-  redirect('/home')
+  redirectTo('/home')
 }

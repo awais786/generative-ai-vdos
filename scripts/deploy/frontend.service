@@ -1,0 +1,16 @@
+[Unit]
+Description=Generative AI Vdos Next.js frontend
+After=network.target backend.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/generative-ai-vdos/webapp
+EnvironmentFile=/home/ubuntu/generative-ai-vdos/.env
+ExecStart=/usr/bin/npm run start -- -p 3000 -H 127.0.0.1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
