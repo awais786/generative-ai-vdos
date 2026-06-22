@@ -27,4 +27,9 @@ urlpatterns = router.urls + [
         SceneViewSet.as_view({"post": "regenerate"}),
         name="project-scenes-regenerate",
     ),
+    path(
+        "projects/<uuid:project_pk>/scenes/<int:index>/revoice/",
+        SceneViewSet.as_view({"post": "revoice"}),
+        name="project-scenes-revoice",
+    ),
 ]

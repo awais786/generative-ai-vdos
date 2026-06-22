@@ -170,22 +170,28 @@ def run_image_stage(self, project_id, scene_index):
     soft_time_limit=15 * 60,
     time_limit=18 * 60,
 )
-def run_voice_stage(self, project_id):
+def run_voice_stage(self, project_id, scene_index=None):
     project = Project.objects.get(id=project_id)
-    publish_event(project_id, Stage.VOICE, Level.INFO, "Generating voiceover")
+    if scene_index is None:
+        publish_event(project_id, Stage.VOICE, Level.INFO, "Generating voiceover")
+    else:
+        publish_event(project_id, Stage.VOICE, Level.INFO, f"Generating voiceover for scene {scene_index}")
 
     try:
         work_dir = get_work_dir(project)
         work_dir.mkdir(parents=True, exist_ok=True)
         # TODO: call actual TTS backend (edge-tts is free, no key needed)
-        publish_event(project_id, Stage.VOICE, Level.INFO, "Voiceover done")
+        if scene_index is None:
+            publish_event(project_id, Stage.VOICE, Level.INFO, "Voiceover done")
+        else:
+            publish_event(project_id, Stage.VOICE, Level.INFO, f"Voiceover done for scene {scene_index}")
     except Exception as exc:
         is_transient = isinstance(exc, (ConnectionError, TimeoutError))
         message = "Voiceover failed (will retry)" if is_transient else f"Voiceover failed: {exc}"
         publish_event(project_id, Stage.VOICE, Level.ERROR, message)
         raise
 
-    return {"project_id": project_id}
+    return {"project_id": project_id, "scene_index": scene_index}
 
 
 @shared_task(
@@ -206,6 +212,8 @@ def run_assemble_stage(self, project_id):
         work_dir = get_work_dir(project)
         work_dir.mkdir(parents=True, exist_ok=True)
         # TODO: call actual FFmpeg assembly (no external API, no key needed)
+        project.stale = False
+        project.save(update_fields=["stale", "updated_at"])
         project.transition_status(Status.DONE)
         publish_event(project_id, Stage.ASSEMBLE, Level.INFO, "Assembly complete")
     except Exception as exc:

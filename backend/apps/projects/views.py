@@ -2,6 +2,7 @@ import json
 import time
 
 from django.db import transaction
+from django.http import FileResponse, Http404
 from django.http import StreamingHttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -17,6 +18,7 @@ from .constants import ImageStatus, Status
 from apps.storage import storage_provider
 from apps.projects.models import LLMModel
 from apps.projects.serializers import LLMModelSerializer
+
 
 class SseRenderer(BaseRenderer):
     media_type = 'text/event-stream'
@@ -47,6 +49,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         project = ProjectService.create(owner=request.user, **serializer.validated_data)
         return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, *args, **kwargs):
+        project = self.get_object()
+        if project.status != Status.REVIEW:
+            return Response(
+                {"detail": "Can only edit plan in REVIEW state."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return super().partial_update(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
@@ -167,6 +178,40 @@ class ProjectViewSet(viewsets.ModelViewSet):
         ).delay()
         return Response({"queued": len(scene_indices)}, status=status.HTTP_202_ACCEPTED)
 
+    @action(detail=True, methods=["post"], url_path="regenerate-voiceovers")
+    def regenerate_voiceovers(self, request, pk=None):
+        project = self.get_object()
+        from .tasks import run_voice_stage
+
+        project.stale = True
+        project.save(update_fields=["stale", "updated_at"])
+        _eager_thread(run_voice_stage.delay, str(project.id))
+        return Response({"queued": 1}, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=True, methods=["post"])
+    def reassemble(self, request, pk=None):
+        project = self.get_object()
+        from .tasks import run_assemble_stage
+
+        if project.status != Status.DONE:
+            return Response(
+                {"detail": f"Cannot reassemble from {project.status} state."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        project.transition_status(Status.GENERATING)
+        transaction.on_commit(lambda: _eager_thread(run_assemble_stage.delay, str(project.id)))
+        return Response(ProjectSerializer(project).data, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=True, methods=["get"])
+    def download(self, request, pk=None):
+        project = self.get_object()
+        from .utils import get_work_dir
+
+        video_path = get_work_dir(project) / "final.mp4"
+        if not video_path.exists():
+            raise Http404("final.mp4 not found")
+        return FileResponse(video_path.open("rb"), content_type="video/mp4", filename="final.mp4")
+
     @action(detail=True, methods=["get"])
     def logs(self, request, pk=None):
         project = self.get_object()
@@ -259,7 +304,23 @@ class SceneViewSet(viewsets.GenericViewSet):
         scene.save(update_fields=update_fields)
 
         from .tasks import run_image_stage
-        run_image_stage.delay(str(scene.project_id), scene.index)
+        _eager_thread(run_image_stage.delay, str(scene.project_id), scene.index)
+        return Response(SceneSerializer(scene).data, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=True, methods=["post"])
+    def revoice(self, request, project_pk=None, index=None):
+        scene = self.get_object()
+        narration = request.data.get("narration")
+        if isinstance(narration, str):
+            scene.narration = narration
+            scene.save(update_fields=["narration", "updated_at"])
+
+        project = scene.project
+        project.stale = True
+        project.save(update_fields=["stale", "updated_at"])
+
+        from .tasks import run_voice_stage
+        _eager_thread(run_voice_stage.delay, str(scene.project_id), scene.index)
         return Response(SceneSerializer(scene).data, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["get"], url_path="media-urls")

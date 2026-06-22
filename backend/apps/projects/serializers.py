@@ -67,7 +67,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             "error", "stale", "scenes", "created_at", "updated_at",
         ]
         read_only_fields = [
-            "id", "status", "shot_plan", "error", "stale",
+            "id", "status", "error", "stale",
             "created_at", "updated_at",
         ]
 
