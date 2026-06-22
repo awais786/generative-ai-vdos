@@ -107,13 +107,13 @@ def generate_scene(project, scene, scene_index):
     plan_data = {**(project.shot_plan or {})}
     plan_data["scenes"] = [
         {
-            "media_prompt": s.media_prompt,
-            "narration": s.narration,
-            "negative_prompt": s.negative_prompt or None,
-            "animate": s.animate,
-            "on_screen_text": s.on_screen_text or None,
+            "media_prompt": scene.media_prompt,
+            "narration": scene.narration,
+            "negative_prompt": scene.negative_prompt or None,
+            "animate": scene.animate,
+            "on_screen_text": scene.on_screen_text or None,
         }
-        for s in Scene.objects.filter(project=project).order_by("index")
+        for scene in Scene.objects.filter(project=project).order_by("index")
     ]
     plan = ShotPlan.model_validate(plan_data)
 
@@ -144,10 +144,22 @@ def generate_scene(project, scene, scene_index):
         scene.media_path.delete(save=False)
 
     filename = f"scene_{scene_index:02d}.png"
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_path = Path(tmpdir) / filename
-        tmp_path.write_bytes(data)
-        storage_provider.upload(scene.media_path, tmp_path, save=False)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir) / filename
+            tmp_path.write_bytes(data)
+            storage_provider.upload(scene.media_path, tmp_path, save=False)
+    except Exception as e:
+        logger.error("Failed to upload image to storage: %s", e)
+        scene.image_status = ImageStatus.FAILED
+        scene.save(update_fields=["image_status", "updated_at"])
+        publish_event(
+            project_id, Stage.IMAGES, Level.ERROR,
+            f"Failed to upload image for scene {scene_index}: {e}",
+            scene_index=scene_index,
+            image_status=ImageStatus.FAILED,
+        )
+        raise
 
     scene.image_status = ImageStatus.DONE
     scene.image_provider = used.name

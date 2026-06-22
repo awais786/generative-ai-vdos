@@ -18,6 +18,15 @@ const VOICES = [
   { value: 'en-US-AvaNeural', label: 'Ava (US Female)' },
 ]
 
+// Presigned S3 URLs already contain '?' (new signature per request) so the browser
+// never caches them across regens. Local-dev URLs have no '?' — append updated_at
+// so the browser treats the re-generated image as a distinct resource.
+function stableImageSrc(scene: Scene): string | undefined {
+  if (!scene.media_path) return undefined
+  if (scene.media_path.includes('?')) return scene.media_path
+  return `${scene.media_path}?v=${encodeURIComponent(scene.updated_at ?? '')}`
+}
+
 const IMG_STATUS_COLOR: Record<string, string> = {
   PENDING: '#9aa3b2',
   RUNNING: '#f0a35e',
@@ -237,7 +246,7 @@ const DoneSceneCard = memo(function DoneSceneCard({
         <div className="w-16 h-10 rounded bg-[#171a21] shrink-0 overflow-hidden flex items-center justify-center">
           {scene.media_path && scene.image_status === 'DONE' ? (
             <img
-              src={scene.media_path}
+              src={stableImageSrc(scene)}
               alt=""
               className="w-full h-full object-cover"
             />
@@ -286,7 +295,7 @@ const DoneSceneCard = memo(function DoneSceneCard({
             <div className="aspect-video bg-[#171a21] rounded-lg overflow-hidden flex items-center justify-center">
               {scene.media_path && scene.image_status === 'DONE' ? (
                 <img
-                  src={scene.media_path}
+                  src={stableImageSrc(scene)}
                   alt={`Scene ${scene.index + 1}`}
                   className="w-full h-full object-cover"
                 />

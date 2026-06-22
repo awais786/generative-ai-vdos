@@ -23,7 +23,7 @@ from apps.projects.models import LLMModel
 from apps.projects.serializers import LLMModelSerializer
 
 
-class SseRenderer(BaseRenderer):
+class SSERenderer(BaseRenderer):
     media_type = 'text/event-stream'
     format = 'txt'
 
@@ -53,6 +53,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
         project = ProjectService.create(owner=request.user, **serializer.validated_data)
         return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)
 
+    def _get_locked_project(self):
+        return self.get_queryset().select_for_update().get(pk=self.kwargs["pk"])
+
     def partial_update(self, request, *args, **kwargs):
         project = self.get_object()
         if project.status != Status.REVIEW:
@@ -64,36 +67,38 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        project = self.get_object()
-        if project.status != Status.REVIEW:
-            return Response(
-                {"detail": f"Cannot approve from {project.status} state."},
-                status=status.HTTP_409_CONFLICT,
-            )
-        project.transition_status(Status.GENERATING)
+        with transaction.atomic():
+            project = self._get_locked_project()
+            if project.status != Status.REVIEW:
+                return Response(
+                    {"detail": f"Cannot approve from {project.status} state."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            project.transition_status(Status.GENERATING)
         transaction.on_commit(lambda: _dispatch_generate_stage(str(project.id)))
         return Response(ProjectSerializer(project).data, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["post"])
     def refine(self, request, pk=None):
-        project = self.get_object()
-        if project.status != Status.REVIEW:
-            return Response(
-                {"detail": f"Cannot refine from {project.status} state."},
-                status=status.HTTP_409_CONFLICT,
-            )
         instruction = request.data.get("instruction", "").strip()
         if not instruction:
             return Response(
                 {"detail": "instruction is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        project.transition_status(Status.PLANNING)
+        with transaction.atomic():
+            project = self._get_locked_project()
+            if project.status != Status.REVIEW:
+                return Response(
+                    {"detail": f"Cannot refine from {project.status} state."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            project.transition_status(Status.PLANNING)
         project_id = str(project.id)
         transaction.on_commit(lambda: _dispatch_refine_stage(project_id, instruction))
         return Response(ProjectSerializer(project).data, status=status.HTTP_202_ACCEPTED)
 
-    @action(detail=True, methods=["get"], renderer_classes=[SseRenderer])
+    @action(detail=True, methods=["get"], renderer_classes=[SSERenderer])
     def events(self, request, pk=None):
         project = self.get_object()
 
@@ -190,15 +195,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def reassemble(self, request, pk=None):
-        project = self.get_object()
-
-        if project.status != Status.DONE:
-            return Response(
-                {"detail": f"Cannot reassemble from {project.status} state."},
-                status=status.HTTP_409_CONFLICT,
-            )
-        project.status = Status.GENERATING
-        project.save(update_fields=["status", "updated_at"])
+        with transaction.atomic():
+            project = self._get_locked_project()
+            if project.status != Status.DONE:
+                return Response(
+                    {"detail": f"Cannot reassemble from {project.status} state."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            project.status = Status.GENERATING
+            project.save(update_fields=["status", "updated_at"])
         _eager_thread(run_assemble_stage.delay, str(project.id))
         return Response(ProjectSerializer(project).data, status=status.HTTP_202_ACCEPTED)
 
@@ -272,35 +277,42 @@ class SceneViewSet(viewsets.GenericViewSet):
             return SceneUpdateSerializer
         return SceneSerializer
 
+    def _get_locked_scene(self, index):
+        return self.get_queryset().select_for_update().get(index=index)
+
     def list(self, request, project_pk=None):
         qs = self.get_queryset()
-        return Response(SceneSerializer(qs, many=True).data)
+        return Response(self.get_serializer(qs, many=True).data)
 
     def retrieve(self, request, project_pk=None, index=None):
         scene = self.get_object()
-        return Response(SceneSerializer(scene).data)
+        return Response(self.get_serializer(scene).data)
 
     def partial_update(self, request, project_pk=None, index=None):
         scene = self.get_object()
         serializer = SceneUpdateSerializer(scene, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(SceneSerializer(scene).data)
+        return Response(SceneSerializer(scene, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["post"])
     def regenerate(self, request, project_pk=None, index=None):
-        scene = self.get_object()
-        prompt = request.data.get("prompt", "").strip()
-        if prompt:
-            scene.media_prompt = prompt
-        scene.image_status = ImageStatus.PENDING
-        update_fields = ["image_status", "updated_at"]
-        if prompt:
-            update_fields.append("media_prompt")
-        scene.save(update_fields=update_fields)
+        with transaction.atomic():
+            scene = self._get_locked_scene(index)
+            prompt = request.data.get("prompt", "").strip()
+            if prompt:
+                scene.media_prompt = prompt
+            scene.image_status = ImageStatus.PENDING
+            update_fields = ["image_status", "updated_at"]
+            if prompt:
+                update_fields.append("media_prompt")
+            scene.save(update_fields=update_fields)
 
         _eager_thread(run_image_stage.delay, str(scene.project_id), scene.index)
-        return Response(SceneSerializer(scene).data, status=status.HTTP_202_ACCEPTED)
+        return Response(
+            SceneSerializer(scene, context=self.get_serializer_context()).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @action(detail=True, methods=["post"])
     def revoice(self, request, project_pk=None, index=None):
@@ -315,7 +327,10 @@ class SceneViewSet(viewsets.GenericViewSet):
         project.save(update_fields=["stale", "updated_at"])
 
         _eager_thread(run_voice_stage.delay, str(scene.project_id), scene.index)
-        return Response(SceneSerializer(scene).data, status=status.HTTP_202_ACCEPTED)
+        return Response(
+            SceneSerializer(scene, context=self.get_serializer_context()).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @action(detail=True, methods=["get"], url_path="media-urls")
     def media_urls(self, request, project_pk=None, index=None):

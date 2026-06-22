@@ -103,7 +103,7 @@ def generate_scene_image(
     scene = plan.scenes[index]
     scene_prompt = plan.expand(scene.media_prompt, scene_outfit=scene.outfit, include_style_overhead=True)
     chars_in_scene = plan.characters_in(scene.media_prompt)
-    char_map = {c.name: c for c in plan.characters}
+    char_map = {character.name: character for character in plan.characters}
 
     if len(chars_in_scene) >= 3:
         short_names = [" ".join(char_map[n].description.split()[:4])
@@ -112,8 +112,8 @@ def generate_scene_image(
     elif len(chars_in_scene) >= 2:
         # Anchor gender/identity for 2-character scenes — prevents the image model
         # from defaulting both characters to the same gender.
-        anchors = [char_map[n].description.split(".")[0].split(",")[0]
-                   for n in chars_in_scene if n in char_map]
+        anchors = [char_map[character_in_scene].description.split(".")[0].split(",")[0]
+                   for character_in_scene in chars_in_scene if character_in_scene in char_map]
         if anchors:
             scene_prompt += f". Characters present: {'; '.join(anchors)}"
 

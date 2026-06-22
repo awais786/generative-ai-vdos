@@ -37,6 +37,8 @@ export interface Scene {
   media_path: string
   image_status: 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED'
   image_provider: string
+  created_at: string
+  updated_at: string
 }
 
 export interface Project {
