@@ -1,6 +1,7 @@
 import json
 import time
 
+from celery import chain, group
 from django.db import transaction
 from django.http import FileResponse, Http404
 from django.http import StreamingHttpResponse
@@ -14,6 +15,8 @@ from .models import Project, Scene, JobLog
 from .serializers import (ProjectSerializer, ProjectCreateSerializer,
                           SceneSerializer, SceneUpdateSerializer, JobLogSerializer)
 from .services import ProjectService, _get_redis, _eager_thread
+from .tasks import run_assemble_stage, run_image_stage, run_refine_stage, run_voice_stage
+from .utils import get_work_dir
 from .constants import ImageStatus, Status
 from apps.storage import storage_provider
 from apps.projects.models import LLMModel
@@ -163,8 +166,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="regenerate-images")
     def regenerate_images(self, request, pk=None):
         project = self.get_object()
-        from .tasks import run_image_stage
-        from celery import group
         scene_indices = list(
             Scene.objects.filter(project=project)
             .values_list("index", flat=True)
@@ -181,7 +182,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="regenerate-voiceovers")
     def regenerate_voiceovers(self, request, pk=None):
         project = self.get_object()
-        from .tasks import run_voice_stage
 
         project.stale = True
         project.save(update_fields=["stale", "updated_at"])
@@ -191,7 +191,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def reassemble(self, request, pk=None):
         project = self.get_object()
-        from .tasks import run_assemble_stage
 
         if project.status != Status.DONE:
             return Response(
@@ -206,7 +205,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
         project = self.get_object()
-        from .utils import get_work_dir
 
         video_path = get_work_dir(project) / "final.mp4"
         if not video_path.exists():
@@ -224,13 +222,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return Response(JobLogSerializer(logs, many=True).data)
 
 def _dispatch_refine_stage(project_id: str, instruction: str) -> None:
-    from .tasks import run_refine_stage
     _eager_thread(run_refine_stage.delay, project_id, instruction)
 
 
 def _dispatch_generate_stage(project_id: str) -> None:
-    from celery import chain
-    from .tasks import run_image_stage, run_voice_stage, run_assemble_stage
     from .models import Scene
 
     scene_indices = list(
@@ -304,7 +299,6 @@ class SceneViewSet(viewsets.GenericViewSet):
             update_fields.append("media_prompt")
         scene.save(update_fields=update_fields)
 
-        from .tasks import run_image_stage
         _eager_thread(run_image_stage.delay, str(scene.project_id), scene.index)
         return Response(SceneSerializer(scene).data, status=status.HTTP_202_ACCEPTED)
 
@@ -320,7 +314,6 @@ class SceneViewSet(viewsets.GenericViewSet):
         project.stale = True
         project.save(update_fields=["stale", "updated_at"])
 
-        from .tasks import run_voice_stage
         _eager_thread(run_voice_stage.delay, str(scene.project_id), scene.index)
         return Response(SceneSerializer(scene).data, status=status.HTTP_202_ACCEPTED)
 
