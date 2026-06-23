@@ -40,6 +40,19 @@ class StorageProvider:
         # is ever needed, add expire=None here and pass it to storage.url(...).
         return self.storage.url(field_file.name)
 
+    def thumbnails(self, field_file: FieldFile) -> dict[str, str]:
+        """Map of ``{size_name: url}`` for field_file's thumbnails.
+
+        Empty when the field is unset, the backend has no thumbnail support, or
+        the file is not an image (e.g. a video). URLs are presigned on S3.
+        """
+        if not field_file:
+            return {}
+        storage = self.storage
+        if not hasattr(storage, "get_thumbnails") or not storage.is_image(field_file.name):
+            return {}
+        return storage.get_thumbnails(field_file.name)
+
 
 # Lazily built so importing this module never touches settings or the app
 # registry before Django is ready. Usage from any app:

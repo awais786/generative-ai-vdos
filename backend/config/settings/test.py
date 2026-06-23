@@ -14,7 +14,7 @@ FIELD_ENCRYPTION_KEY = "SgCzHjGtX6nlkiI4xmKwZJ85MTGdO-e2MiuUBN1v8JI="
 
 STORAGES = {
     "default": {
-        "BACKEND": "django.core.files.storage.InMemoryStorage",
+        "BACKEND": "apps.storage.backends.ThumbnailInMemoryStorage",
     },
     "staticfiles": {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
