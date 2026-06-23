@@ -1,7 +1,6 @@
-from pathlib import Path
 from unittest.mock import patch
 
-from django.conf import settings
+from django.core.files.base import ContentFile
 from django.test import TestCase
 
 from apps.accounts.models import UserProfile
@@ -67,19 +66,17 @@ class ProjectActionsTest(TestCase):
         resp = self.client.post(f"/api/projects/{self.project.id}/reassemble/")
         self.assertEqual(resp.status_code, 202)
         self.project.refresh_from_db()
-        self.assertEqual(self.project.status, Status.GENERATING)
+        self.assertEqual(self.project.status, Status.VIDEO_GENERATING)
         eager_thread.assert_called_once()
 
-    def test_download_serves_final_video(self):
+    def test_download_redirects_to_storage_url(self):
         self.project.status = Status.DONE
         self.project.save(update_fields=["status", "updated_at"])
-        work_dir = Path(settings.MEDIA_ROOT) / str(self.owner.id) / str(self.project.id)
-        work_dir.mkdir(parents=True, exist_ok=True)
-        (work_dir / "final.mp4").write_bytes(b"video")
+        self.project.final_video_path.save("final.mp4", ContentFile(b"video"), save=True)
 
-        resp = self.client.get(f"/api/projects/{self.project.id}/download/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp["Content-Type"], "video/mp4")
+        resp = self.client.get(f"/api/projects/{self.project.id}/download/", follow=False)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("final.mp4", resp["Location"])
 
 
 class SceneActionsTest(TestCase):

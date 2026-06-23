@@ -124,7 +124,7 @@ export default function DoneView({ project, onUpdate }: Props) {
       <VideoPlayer
         projectId={project.id}
         stale={project.stale}
-        onRebuild={() => onUpdate({ stale: false })}
+        onRebuild={(updated) => onUpdate(updated)}
       />
 
       {/* Scene strip header */}

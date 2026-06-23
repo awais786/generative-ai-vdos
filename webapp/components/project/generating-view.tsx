@@ -47,7 +47,7 @@ export default function GeneratingView({ project, onUpdate }: Props) {
         if (!res.ok) return
         const updated: Project = await res.json()
         setScenes(updated.scenes)
-        if (updated.status !== 'GENERATING') {
+        if (!['GENERATING', 'VIDEO_GENERATING'].includes(updated.status)) {
           clearInterval(scenePoll)
           clearInterval(logPoll)
           finish(updated)

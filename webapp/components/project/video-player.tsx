@@ -2,11 +2,12 @@
 
 import { useTransition } from 'react'
 import { Button } from '@/components/ui/button'
+import { Project } from '@/lib/project-types'
 
 interface Props {
   projectId: string
   stale: boolean
-  onRebuild: () => void
+  onRebuild: (updated: Project) => void
 }
 
 export default function VideoPlayer({ projectId, stale, onRebuild }: Props) {
@@ -14,10 +15,11 @@ export default function VideoPlayer({ projectId, stale, onRebuild }: Props) {
 
   function handleRebuild() {
     startRebuild(async () => {
-      await fetch(`/api/projects/${projectId}/reassemble/`, {
+      const res = await fetch(`/api/projects/${projectId}/reassemble/`, {
         method: 'POST',
       })
-      onRebuild()
+      const updated: Project = await res.json()
+      onRebuild(updated)
     })
   }
 
