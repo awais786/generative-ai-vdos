@@ -7,6 +7,7 @@ class Status(models.TextChoices):
     REVIEW = "REVIEW"
     GENERATING = "GENERATING"
     DONE = "DONE"
+    VIDEO_GENERATING = "VIDEO_GENERATING"
     FAILED = "FAILED"
 
 
@@ -16,7 +17,8 @@ TRANSITIONS: dict[str, set[str]] = {
     Status.REVIEW: {Status.PLANNING, Status.GENERATING},
     Status.GENERATING: {Status.DONE, Status.FAILED},
     Status.FAILED: {Status.GENERATING},
-    Status.DONE: set(),
+    Status.DONE: {Status.VIDEO_GENERATING},
+    Status.VIDEO_GENERATING: {Status.DONE},
 }
 
 

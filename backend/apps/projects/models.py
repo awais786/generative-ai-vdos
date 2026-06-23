@@ -59,6 +59,9 @@ def scene_media_upload_path(instance: "Scene", filename) -> str:
     else:
         return f"{instance.project.owner_id}/{instance.project.id}/images/{filename}"
 
+def video_upload_path(instance: "Scene", filename) -> str:
+    return f"{instance.project.owner_id}/{instance.project.id}/videos/{filename}"
+
 
 class Project(TimestampMixin):
     Status = Status
@@ -99,6 +102,7 @@ class Project(TimestampMixin):
         null=True, blank=True, related_name="video_projects",
         limit_choices_to={"capability": "video", "is_active": True},
     )
+    final_video_path = models.FileField(upload_to=video_upload_path, blank=True, default="")
     error          = models.TextField(blank=True, default="")
     stale          = models.BooleanField(default=False)
 

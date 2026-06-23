@@ -1,5 +1,4 @@
 import json
-import time
 
 from celery import chain, group
 from django.db import transaction
@@ -16,7 +15,6 @@ from .serializers import (ProjectSerializer, ProjectCreateSerializer,
                           SceneSerializer, SceneUpdateSerializer, JobLogSerializer)
 from .services import ProjectService, _get_redis, _eager_thread
 from .tasks import run_assemble_stage, run_image_stage, run_refine_stage, run_voice_stage
-from .utils import get_work_dir
 from .constants import ImageStatus, Status
 from apps.storage import storage_provider
 from apps.projects.models import LLMModel
@@ -179,9 +177,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
         Scene.objects.filter(project=project).update(
             image_status=ImageStatus.PENDING
         )
-        group(
+        _eager_thread(group(
             run_image_stage.si(str(project.id), idx) for idx in scene_indices
-        ).delay()
+        ).delay())
         return Response({"queued": len(scene_indices)}, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["post"], url_path="regenerate-voiceovers")
@@ -202,7 +200,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     {"detail": f"Cannot reassemble from {project.status} state."},
                     status=status.HTTP_409_CONFLICT,
                 )
-            project.status = Status.GENERATING
+            project.status = Status.VIDEO_GENERATING
             project.save(update_fields=["status", "updated_at"])
         _eager_thread(run_assemble_stage.delay, str(project.id))
         return Response(ProjectSerializer(project).data, status=status.HTTP_202_ACCEPTED)
@@ -211,7 +209,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     def download(self, request, pk=None):
         project = self.get_object()
 
-        video_path = get_work_dir(project) / "final.mp4"
+        video_path = storage_provider.url(project.final_video_path)
         if not video_path.exists():
             raise Http404("final.mp4 not found")
         return FileResponse(video_path.open("rb"), content_type="video/mp4", filename="final.mp4")
