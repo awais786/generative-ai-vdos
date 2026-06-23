@@ -30,7 +30,7 @@ export default function ProjectPage({ initialProject }: Props) {
   if (status === 'REVIEW') {
     return <PlanEditor project={project} onUpdate={updateProject} />
   }
-  if (status === 'GENERATING') {
+  if (status === 'GENERATING' || status === 'VIDEO_GENERATING') {
     return <GeneratingView project={project} onUpdate={updateProject} />
   }
   if (status === 'DONE') {

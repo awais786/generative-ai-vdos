@@ -2,8 +2,9 @@ import json
 
 from celery import chain, group
 from django.db import transaction
-from django.http import FileResponse, Http404
+from django.http import Http404
 from django.http import StreamingHttpResponse
+from django.shortcuts import redirect
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -209,10 +210,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
     def download(self, request, pk=None):
         project = self.get_object()
 
-        video_path = storage_provider.url(project.final_video_path)
-        if not video_path.exists():
+        video_url = storage_provider.url(project.final_video_path)
+        if not video_url:
             raise Http404("final.mp4 not found")
-        return FileResponse(video_path.open("rb"), content_type="video/mp4", filename="final.mp4")
+        return redirect(video_url)
 
     @action(detail=True, methods=["get"])
     def logs(self, request, pk=None):

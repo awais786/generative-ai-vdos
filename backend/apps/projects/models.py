@@ -59,8 +59,8 @@ def scene_media_upload_path(instance: "Scene", filename) -> str:
     else:
         return f"{instance.project.owner_id}/{instance.project.id}/images/{filename}"
 
-def video_upload_path(instance: "Scene", filename) -> str:
-    return f"{instance.project.owner_id}/{instance.project.id}/videos/{filename}"
+def video_upload_path(instance: "Project", filename) -> str:
+    return f"{instance.owner_id}/{instance.id}/videos/{filename}"
 
 
 class Project(TimestampMixin):

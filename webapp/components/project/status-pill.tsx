@@ -2,7 +2,8 @@ const DOT: Record<string, { color: string; pulse: boolean }> = {
   DRAFT:      { color: '#9aa3b2', pulse: false },
   PLANNING:   { color: '#6ea8fe', pulse: true  },
   REVIEW:     { color: '#5cd6a4', pulse: false },
-  GENERATING: { color: '#f0a35e', pulse: true  },
+  GENERATING:       { color: '#f0a35e', pulse: true  },
+  VIDEO_GENERATING: { color: '#f0a35e', pulse: true  },
   DONE:       { color: '#5cd6a4', pulse: false },
   FAILED:     { color: '#f06a6a', pulse: false },
 }
