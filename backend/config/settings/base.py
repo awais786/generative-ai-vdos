@@ -31,6 +31,10 @@ def env_csv(name, default=""):
     return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
 
 
+def env_bool(name, default=False):
+    return os.environ.get(name, str(default)).lower() in ("1", "true", "yes", "on")
+
+
 _COGNITO_VARS = (
     "COGNITO_DOMAIN",
     "COGNITO_APP_CLIENT_ID",
@@ -107,6 +111,9 @@ SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = True
 
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+
+# Block vulgar/offensive user input (local blocklist + OpenAI moderation when key set).
+CONTENT_MODERATION_ENABLED = env_bool("CONTENT_MODERATION_ENABLED", False)
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS: list[str] = []

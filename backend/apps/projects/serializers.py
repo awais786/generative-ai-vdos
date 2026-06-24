@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from apps.core.moderation.drf import ModeratedFieldsMixin
 from apps.projects.models import JobLog, LLMModel, Project, Scene
 
 
@@ -27,7 +28,9 @@ class SceneSerializer(serializers.ModelSerializer):
         ]
 
 
-class SceneUpdateSerializer(serializers.ModelSerializer):
+class SceneUpdateSerializer(ModeratedFieldsMixin, serializers.ModelSerializer):
+    moderated_fields = ("narration", "media_prompt", "on_screen_text", "negative_prompt")
+
     class Meta:
         model = Scene
         fields = ["narration", "media_prompt", "animate", "on_screen_text", "negative_prompt"]
@@ -52,7 +55,8 @@ class LLMModelSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class ProjectSerializer(serializers.ModelSerializer):
+class ProjectSerializer(ModeratedFieldsMixin, serializers.ModelSerializer):
+    moderated_fields = ("prompt", "title")
     scenes = SceneSerializer(many=True, read_only=True)
     plan_model = _model_slug("plan")
     image_model = _model_slug("image")
@@ -72,7 +76,8 @@ class ProjectSerializer(serializers.ModelSerializer):
         ]
 
 
-class ProjectCreateSerializer(serializers.ModelSerializer):
+class ProjectCreateSerializer(ModeratedFieldsMixin, serializers.ModelSerializer):
+    moderated_fields = ("prompt", "title")
     plan_model = _model_slug("plan")
     image_model = _model_slug("image")
     video_model = _model_slug("video")

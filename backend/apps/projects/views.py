@@ -11,6 +11,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
 
+from apps.core.moderation.drf import blocked_response
+
 from .models import Project, Scene, JobLog
 from .serializers import (ProjectSerializer, ProjectCreateSerializer,
                           SceneSerializer, SceneUpdateSerializer, JobLogSerializer)
@@ -85,6 +87,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 {"detail": "instruction is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if resp := blocked_response(instruction, context="refine"):
+            return resp
         with transaction.atomic():
             project = self._get_locked_project()
             if project.status != Status.REVIEW:
@@ -300,6 +304,8 @@ class SceneViewSet(viewsets.GenericViewSet):
             scene = self._get_locked_scene(index)
             prompt = request.data.get("prompt", "").strip()
             if prompt:
+                if resp := blocked_response(prompt, context="regenerate-image"):
+                    return resp
                 scene.media_prompt = prompt
             scene.image_status = ImageStatus.PENDING
             update_fields = ["image_status", "updated_at"]
@@ -318,6 +324,8 @@ class SceneViewSet(viewsets.GenericViewSet):
         scene = self.get_object()
         narration = request.data.get("narration")
         if isinstance(narration, str):
+            if resp := blocked_response(narration, context="revoice"):
+                return resp
             scene.narration = narration
             scene.save(update_fields=["narration", "updated_at"])
 
