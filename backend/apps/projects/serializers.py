@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.projects.models import JobLog, LLMModel, Project, Scene
+from apps.storage import storage_provider
 
 
 def _model_slug(capability):
@@ -13,18 +14,24 @@ def _model_slug(capability):
 
 
 class SceneSerializer(serializers.ModelSerializer):
+    thumbnails = serializers.SerializerMethodField()
+
     class Meta:
         model = Scene
         fields = [
             "id", "index", "narration", "media_prompt", "animate",
             "on_screen_text", "negative_prompt",
-            "media_path", "image_status", "image_provider",
+            "media_path", "thumbnails", "image_status", "image_provider",
             "created_at", "updated_at",
         ]
         read_only_fields = [
-            "id", "index", "media_path", "image_status",
+            "id", "index", "media_path", "thumbnails", "image_status",
             "image_provider", "created_at", "updated_at",
         ]
+
+    def get_thumbnails(self, obj) -> dict[str, str]:
+        """Map of ``{size_name: url}`` for the scene image; ``{}`` if none."""
+        return storage_provider.thumbnails(obj.media_path)
 
 
 class SceneUpdateSerializer(serializers.ModelSerializer):
