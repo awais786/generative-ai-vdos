@@ -2,7 +2,7 @@ import itertools
 import uuid as _uuid
 
 from apps.accounts.models import UserProfile
-from apps.projects.constants import Status
+from apps.projects.choices import Status
 from apps.projects.models import Project, Scene
 
 

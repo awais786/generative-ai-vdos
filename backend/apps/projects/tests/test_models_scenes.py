@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.db import IntegrityError
 from apps.accounts.models import UserProfile
 from apps.projects.models import Project, Scene
-from apps.projects.constants import MediaStatus
+from apps.projects.choices import MediaStatus
 
 
 def make_project():

@@ -3,7 +3,7 @@ import logging
 from celery import shared_task
 
 from apps.storage import storage_provider
-from apps.projects.constants import MediaStatus, Level, Stage, Status
+from apps.projects.choices import MediaStatus, Level, Stage, Status
 from apps.projects.models import Project, Scene
 from apps.projects.services import publish_event
 from apps.projects.utils import (
@@ -220,7 +220,7 @@ def run_video_stage(self, project_id, scene_index=None):
     time_limit=18 * 60,
 )
 def run_voice_stage(self, project_id, scene_index=None):
-    project = Project.objects.select_related("owner").get(id=project_id)
+    project = Project.objects.get(id=project_id)
     if project.status == Status.FAILED:
         return {"project_id": project_id, "scene_index": scene_index}
 

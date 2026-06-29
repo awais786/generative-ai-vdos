@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 
 from apps.core.models import Provider
-from apps.projects.constants import Capability
+from apps.projects.choices import Capability
 from apps.projects.models import LLMModel
 
 PROVIDERS = [

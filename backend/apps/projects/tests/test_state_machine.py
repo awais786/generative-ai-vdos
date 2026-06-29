@@ -2,7 +2,7 @@ import uuid as _uuid
 from django.test import TestCase
 from apps.accounts.models import UserProfile
 from apps.projects.models import Project
-from apps.projects.constants import Status
+from apps.projects.choices import Status
 
 
 def make_project_in(status):

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase
 
 from apps.core.models import Provider
-from apps.projects.constants import Capability, MediaStatus, Status
+from apps.projects.choices import Capability, MediaStatus, Status
 from apps.projects.models import LLMModel, Project, Scene
 from apps.projects.tasks import run_video_stage
 from apps.projects.tests.helpers import make_project, make_shot_plan

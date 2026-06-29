@@ -3,7 +3,7 @@ import uuid
 from django.test import TestCase
 
 from apps.accounts.models import UserProfile
-from apps.projects.constants import MusicMood, NarratorVoice, Status
+from apps.projects.choices import MusicMood, NarratorVoice, Status
 from apps.projects.models import Project
 
 

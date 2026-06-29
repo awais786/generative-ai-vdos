@@ -6,7 +6,7 @@ from django.conf import settings
 from django.db import transaction
 
 from apps.accounts.models import UserProfile
-from apps.projects.constants import Level, Stage
+from apps.projects.choices import Level, Stage
 from apps.projects.models import JobLog, Project
 
 logger = logging.getLogger(__name__)

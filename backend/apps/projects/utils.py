@@ -8,7 +8,7 @@ from apps.storage import storage_provider
 from django.db import transaction
 
 from apps.accounts.models import UserAPIKey
-from apps.projects.constants import Capability, MediaStatus, Level, Stage, Status, VoiceStatus
+from apps.projects.choices import Capability, MediaStatus, Level, Stage, Status, VoiceStatus
 from apps.projects.models import LLMModel, Project, Scene
 from apps.projects.services import publish_event
 
@@ -17,7 +17,7 @@ from pipeline.schema import ShotPlan
 from pipeline.script_agent import consistency_review, polish_image_prompts
 from pipeline.video import _motion_prompt
 from pipeline.video.wan import WanProvider
-from pipeline.voiceover import DEFAULT_VOICE, generate_voiceover, synth_scene_sync
+from pipeline.voiceover import DEFAULT_VOICE, generate_voiceover, resolve_voice, synth_scene_sync
 
 _VIDEO_POLL_INTERVAL = 15       # seconds between poll ticks
 _VIDEO_POLL_TIMEOUT = 15 * 60   # max wait per batch
@@ -291,7 +291,8 @@ def generate_all_scene_voices(project):
 
 def generate_scene_voice(project, scene, scene_index):
     project_id = project.id
-    voice = scene.voice or project.narrator_voice or DEFAULT_VOICE
+    default_voice = project.narrator_voice or DEFAULT_VOICE
+    voice = resolve_voice(scene.voice or None, default_voice)
 
     scene.voice_status = VoiceStatus.RUNNING
     scene.save(update_fields=["voice_status", "updated_at"])

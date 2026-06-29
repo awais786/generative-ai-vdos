@@ -19,3 +19,19 @@ class VoiceoverHelpersTest(SimpleTestCase):
             resolve_voice("en-US-RyanNeural", "en-US-AndrewNeural"),
             "en-US-RyanNeural",
         )
+
+    def test_synth_scene_with_retry_rejects_zero_attempts(self):
+        import asyncio
+        from pipeline.voiceover import synth_scene_with_retry
+        from pathlib import Path
+        import tempfile
+
+        async def run():
+            with tempfile.TemporaryDirectory() as tmpdir:
+                mp3 = Path(tmpdir) / "a.mp3"
+                words = Path(tmpdir) / "a.words.json"
+                with self.assertRaises(RuntimeError) as ctx:
+                    await synth_scene_with_retry("hello", "en-US-AndrewNeural", mp3, words, max_attempts=0)
+                self.assertIn("max_attempts", str(ctx.exception))
+
+        asyncio.run(run())

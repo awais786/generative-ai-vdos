@@ -4,7 +4,7 @@ from django.core.files.base import ContentFile
 from django.test import TestCase
 
 from apps.accounts.models import UserProfile
-from apps.projects.constants import Status
+from apps.projects.choices import Status
 from apps.projects.models import Project, Scene
 
 
@@ -109,3 +109,14 @@ class SceneActionsTest(TestCase):
         self.assertEqual(self.scene.narration, "after")
         self.assertTrue(self.project.stale)
         eager_thread.assert_called_once()
+
+    @patch("apps.projects.views._eager_thread")
+    def test_revoice_empty_body_does_not_dispatch(self, eager_thread):
+        resp = self.client.post(
+            f"/api/projects/{self.project.id}/scenes/{self.scene.index}/revoice/",
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 202)
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.stale)
+        eager_thread.assert_not_called()

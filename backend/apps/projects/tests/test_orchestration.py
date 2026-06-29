@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
-from apps.projects.constants import MediaStatus, Status
+from apps.projects.choices import MediaStatus, Status
 from apps.projects.models import Scene
 from apps.projects.orchestration import run_assembly, run_images, run_voice
 from apps.projects.tests.helpers import make_generating_project

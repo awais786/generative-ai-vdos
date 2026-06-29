@@ -6,7 +6,7 @@ from django.test import TestCase
 
 from apps.accounts.models import UserAPIKey, UserProfile
 from apps.core.models import Provider
-from apps.projects.constants import Capability
+from apps.projects.choices import Capability
 from apps.projects.models import LLMModel
 from pipeline.secure import get_fernet
 

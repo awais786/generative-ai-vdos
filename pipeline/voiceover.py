@@ -5,8 +5,8 @@ for free — no whisper pass needed.
 """
 import asyncio
 import json
+import logging
 import re
-import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -14,6 +14,8 @@ import edge_tts
 from edge_tts.exceptions import NoAudioReceived
 
 from .schema import ShotPlan
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_VOICE = "en-US-AndrewNeural"
 _VOICE_RE = re.compile(r"^[a-z]{2}-[A-Z]{2}-.+Neural$")
@@ -80,10 +82,13 @@ async def synth_scene_with_retry(
             if attempt + 1 >= max_attempts:
                 break
             delay = base_delay * (attempt + 1)
-            print(f"  voice: retry {attempt + 2}/{max_attempts} after {exc!r} "
-                  f"(sleep {delay:.1f}s)")
+            logger.warning(
+                "voice: retry %s/%s after %r (sleep %.1fs)",
+                attempt + 2, max_attempts, exc, delay,
+            )
             await asyncio.sleep(delay)
-    assert last_error is not None
+    if last_error is None:
+        raise RuntimeError("max_attempts must be >= 1")
     raise last_error
 
 
@@ -111,12 +116,16 @@ def generate_voiceover(
     async def run_all():
         for i in indices:
             scene = plan.scenes[i]
-            mp3 = out_dir / f"scene_{i:02d}.mp3"
-            words = out_dir / f"scene_{i:02d}.words.json"
+            prefix = out_dir / f"scene_{i:02d}"
+            mp3 = prefix.with_suffix(".mp3")
+            words = Path(f"{prefix}.words.json")
             scene_voice = resolve_voice(scene.voice, default_voice)
             await synth_scene_with_retry(scene.narration, scene_voice, mp3, words)
             mp3_paths.append(mp3)
-            print(f"  voice: scene {i + 1}/{len(plan.scenes)} ({scene_voice})")
+            logger.info(
+                "voice: scene %s/%s (%s)",
+                i + 1, len(plan.scenes), scene_voice,
+            )
             # Brief pause between scenes to avoid edge-tts rate limits.
             if i != indices[-1]:
                 await asyncio.sleep(0.4)

@@ -6,7 +6,7 @@ from django.core.files.base import ContentFile
 from django.test import TestCase
 
 from apps.accounts.models import UserProfile
-from apps.projects.constants import Status, VoiceStatus
+from apps.projects.choices import Status, VoiceStatus
 from apps.projects.models import Project, Scene
 from apps.projects.tasks import run_assemble_stage, run_voice_stage
 
@@ -70,6 +70,25 @@ class RunVoiceStageTest(TestCase):
         self.assertEqual(self.project.status, Status.DONE)
         self.scene.refresh_from_db()
         self.assertEqual(self.scene.voice_status, VoiceStatus.DONE)
+
+    @patch("apps.projects.utils.synth_scene_sync")
+    def test_invalid_scene_voice_falls_back_to_narrator(self, mock_synth):
+        captured = {}
+
+        def fake_synth(text, voice, mp3_path, words_path):
+            captured["voice"] = voice
+            mp3_path.write_bytes(b"ID3")
+            words_path.write_text("[]")
+
+        mock_synth.side_effect = fake_synth
+        self.scene.voice = "not-a-voice"
+        self.scene.save(update_fields=["voice", "updated_at"])
+        self.project.status = Status.DONE
+        self.project.save(update_fields=["status", "updated_at"])
+
+        run_voice_stage(str(self.project.id), scene_index=0)
+
+        self.assertEqual(captured["voice"], "en-US-AndrewNeural")
 
 
 class RunAssembleStageTest(TestCase):

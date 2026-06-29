@@ -4,8 +4,7 @@ from django.db import models, transaction
 
 from apps.accounts.models import UserProfile
 from apps.core.models import TimestampMixin
-from apps.projects.constants import (
-    TRANSITIONS,
+from apps.projects.choices import (
     Capability,
     MediaStatus,
     Level,
@@ -16,6 +15,7 @@ from apps.projects.constants import (
     StylePreset,
     VoiceStatus,
 )
+from apps.projects.constants import TRANSITIONS
 
 
 class LLMModel(TimestampMixin):
