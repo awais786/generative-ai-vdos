@@ -8,7 +8,7 @@ from apps.storage import storage_provider
 from django.db import transaction
 
 from apps.accounts.models import UserAPIKey
-from apps.projects.constants import Capability, MediaStatus, Level, Stage, Status
+from apps.projects.constants import Capability, MediaStatus, Level, Stage, Status, VoiceStatus
 from apps.projects.models import LLMModel, Project, Scene
 from apps.projects.services import publish_event
 
@@ -17,6 +17,7 @@ from pipeline.schema import ShotPlan
 from pipeline.script_agent import consistency_review, polish_image_prompts
 from pipeline.video import _motion_prompt
 from pipeline.video.wan import WanProvider
+from pipeline.voiceover import DEFAULT_VOICE, generate_voiceover, synth_scene_sync
 
 _VIDEO_POLL_INTERVAL = 15       # seconds between poll ticks
 _VIDEO_POLL_TIMEOUT = 15 * 60   # max wait per batch
@@ -26,6 +27,30 @@ logger = logging.getLogger(__name__)
 
 def get_work_dir(project):
     return Path(settings.MEDIA_ROOT) / str(project.owner_id) / str(project.id)
+
+
+def build_shot_plan(project) -> ShotPlan:
+    """Merge plan-level metadata with Scene rows — single source of truth."""
+    plan_data = {**(project.shot_plan or {})}
+    plan_data.setdefault("title", project.title or "Untitled")
+    plan_data.setdefault("description", "")
+    plan_data.setdefault("tags", [])
+    plan_data.setdefault("style_prefix", "")
+    if not plan_data.get("music_mood") and project.music:
+        plan_data["music_mood"] = project.music
+    plan_data.setdefault("music_mood", "calm")
+    plan_data["scenes"] = [
+        {
+            "media_prompt": scene.media_prompt,
+            "narration": scene.narration,
+            "negative_prompt": scene.negative_prompt or None,
+            "animate": scene.animate,
+            "on_screen_text": scene.on_screen_text or None,
+            "voice": scene.voice or None,
+        }
+        for scene in Scene.objects.filter(project=project).order_by("index")
+    ]
+    return ShotPlan.model_validate(plan_data)
 
 
 def resolve_secure_key(owner, provider):
@@ -73,6 +98,7 @@ def save_plan(project, plan):
                 on_screen_text=scene.on_screen_text or "",
                 negative_prompt=scene.negative_prompt or "",
                 animate=scene.animate,
+                voice=scene.voice or "",
             )
             for i, scene in enumerate(plan.scenes)
         ])
@@ -108,20 +134,7 @@ def fail_project(project, project_id, stage, exc):
 
 def generate_scene(project, scene, scene_index):
     project_id = project.id
-
-    # Build ShotPlan from plan-level metadata + DB scenes (single source of truth).
-    plan_data = {**(project.shot_plan or {})}
-    plan_data["scenes"] = [
-        {
-            "media_prompt": scene.media_prompt,
-            "narration": scene.narration,
-            "negative_prompt": scene.negative_prompt or None,
-            "animate": scene.animate,
-            "on_screen_text": scene.on_screen_text or None,
-        }
-        for scene in Scene.objects.filter(project=project).order_by("index")
-    ]
-    plan = ShotPlan.model_validate(plan_data)
+    plan = build_shot_plan(project)
 
     llm = project.image_model
 
@@ -233,3 +246,83 @@ def animate_scene(project, scene, scene_index):
             return
 
     raise RuntimeError(f"Scene {scene_index} timed out after {_VIDEO_POLL_TIMEOUT // 60} min")
+
+
+def _upload_voice_files(scene, mp3_path: Path, words_path: Path) -> None:
+    if scene.audio_path:
+        scene.audio_path.delete(save=False)
+    if scene.words_path:
+        scene.words_path.delete(save=False)
+    storage_provider.upload(scene.audio_path, mp3_path, save=False)
+    storage_provider.upload(scene.words_path, words_path, save=False)
+    scene.voice_status = VoiceStatus.DONE
+    scene.save(update_fields=["audio_path", "words_path", "voice_status", "updated_at"])
+
+
+def generate_all_scene_voices(project):
+    """Synthesize every scene in one edge-tts session, then upload to storage."""
+    project_id = project.id
+    plan = build_shot_plan(project)
+    audio_dir = get_work_dir(project) / "audio"
+    default_voice = project.narrator_voice or DEFAULT_VOICE
+
+    generate_voiceover(plan, audio_dir, voice=default_voice)
+
+    for scene in Scene.objects.filter(project=project).order_by("index"):
+        idx = scene.index
+        mp3_path = audio_dir / f"scene_{idx:02d}.mp3"
+        words_path = audio_dir / f"scene_{idx:02d}.words.json"
+        if not mp3_path.is_file() or not words_path.is_file():
+            raise FileNotFoundError(f"voiceover output missing for scene {idx}")
+        scene.voice_status = VoiceStatus.RUNNING
+        scene.save(update_fields=["voice_status", "updated_at"])
+        publish_event(
+            project_id, Stage.VOICE, Level.INFO,
+            f"Uploading voiceover for scene {idx}",
+            scene_index=idx,
+        )
+        _upload_voice_files(scene, mp3_path, words_path)
+        publish_event(
+            project_id, Stage.VOICE, Level.INFO,
+            f"Scene {idx} voiceover done",
+            scene_index=idx,
+        )
+
+
+def generate_scene_voice(project, scene, scene_index):
+    project_id = project.id
+    voice = scene.voice or project.narrator_voice or DEFAULT_VOICE
+
+    scene.voice_status = VoiceStatus.RUNNING
+    scene.save(update_fields=["voice_status", "updated_at"])
+    publish_event(
+        project_id, Stage.VOICE, Level.INFO,
+        f"Generating voiceover for scene {scene_index} ({voice})",
+        scene_index=scene_index,
+    )
+
+    mp3_name = f"scene_{scene_index:02d}.mp3"
+    words_name = f"scene_{scene_index:02d}.words.json"
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mp3_path = Path(tmpdir) / mp3_name
+            words_path = Path(tmpdir) / words_name
+            synth_scene_sync(scene.narration, voice, mp3_path, words_path)
+            _upload_voice_files(scene, mp3_path, words_path)
+    except Exception as e:
+        logger.error("Voiceover failed for scene %s: %s", scene_index, e)
+        scene.voice_status = VoiceStatus.FAILED
+        scene.save(update_fields=["voice_status", "updated_at"])
+        publish_event(
+            project_id, Stage.VOICE, Level.ERROR,
+            f"Scene {scene_index} voiceover failed: {e}",
+            scene_index=scene_index,
+        )
+        raise
+
+    publish_event(
+        project_id, Stage.VOICE, Level.INFO,
+        f"Scene {scene_index} voiceover done",
+        scene_index=scene_index,
+    )
+    return scene.audio_path.name

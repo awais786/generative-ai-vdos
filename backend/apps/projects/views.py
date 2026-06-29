@@ -18,7 +18,7 @@ from .serializers import (ProjectSerializer, ProjectCreateSerializer,
                           SceneSerializer, SceneUpdateSerializer, JobLogSerializer)
 from .services import ProjectService, _get_redis, _eager_thread
 from .tasks import run_assemble_stage, run_image_stage, run_refine_stage, run_video_stage, run_voice_stage
-from .constants import MediaStatus, Status
+from .constants import MediaStatus, Status, VoiceStatus
 from apps.storage import storage_provider
 from apps.projects.models import LLMModel
 from apps.projects.serializers import LLMModelSerializer
@@ -190,7 +190,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="regenerate-voiceovers")
     def regenerate_voiceovers(self, request, pk=None):
         project = self.get_object()
+        voice = request.data.get("narrator_voice") or request.data.get("voice")
+        if isinstance(voice, str) and voice.strip():
+            project.narrator_voice = voice.strip()
+            project.save(update_fields=["narrator_voice", "updated_at"])
 
+        Scene.objects.filter(project=project).update(voice_status=VoiceStatus.PENDING)
         project.stale = True
         project.save(update_fields=["stale", "updated_at"])
         _eager_thread(run_voice_stage.delay, str(project.id))
@@ -332,11 +337,22 @@ class SceneViewSet(viewsets.GenericViewSet):
     def revoice(self, request, project_pk=None, index=None):
         scene = self.get_object()
         narration = request.data.get("narration")
+        voice = request.data.get("voice") or request.data.get("narrator_voice")
+        update_fields = ["updated_at"]
+
         if isinstance(narration, str):
             if resp := blocked_response(narration, context="revoice"):
                 return resp
             scene.narration = narration
-            scene.save(update_fields=["narration", "updated_at"])
+            update_fields.append("narration")
+        if isinstance(voice, str) and voice.strip():
+            scene.voice = voice.strip()
+            update_fields.append("voice")
+
+        if len(update_fields) > 1:
+            scene.voice_status = VoiceStatus.PENDING
+            update_fields.append("voice_status")
+            scene.save(update_fields=update_fields)
 
         project = scene.project
         project.stale = True
@@ -347,6 +363,13 @@ class SceneViewSet(viewsets.GenericViewSet):
             SceneSerializer(scene, context=self.get_serializer_context()).data,
             status=status.HTTP_202_ACCEPTED,
         )
+
+    @action(detail=True, methods=["get"], url_path="audio-urls")
+    def audio_urls(self, request, project_pk=None, index=None):
+        scene = self.get_object()
+        return Response({
+            "audio_url": storage_provider.url(scene.audio_path),
+        })
 
     @action(detail=True, methods=["get"], url_path="media-urls")
     def media_urls(self, request, project_pk=None, index=None):

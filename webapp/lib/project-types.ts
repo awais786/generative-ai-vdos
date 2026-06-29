@@ -33,11 +33,14 @@ export interface Scene {
   narration: string
   media_prompt: string
   animate: boolean
+  voice: string
   on_screen_text: string
   negative_prompt: string
   media_path: string
   media_status: 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED'
   media_provider: string
+  audio_path: string
+  voice_status: 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED'
   created_at: string
   updated_at: string
 }

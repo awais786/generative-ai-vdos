@@ -2,6 +2,7 @@ import logging
 
 from celery import shared_task
 
+from apps.storage import storage_provider
 from apps.projects.constants import MediaStatus, Level, Stage, Status
 from apps.projects.models import Project, Scene
 from apps.projects.services import publish_event
@@ -10,13 +11,16 @@ from apps.projects.utils import (
     fail_project,
     fetch_project_for_plan,
     generate_scene,
-    get_work_dir,
+    generate_all_scene_voices,
+    generate_scene_voice,
     handle_transient_error,
     polish_plan,
     resolve_plan_model,
     resolve_secure_key,
     save_plan,
 )
+from apps.projects.workdir import materialize_work_dir, music_root
+from pipeline.assemble import assemble, pick_music
 
 from pipeline.schema import ShotPlan
 from pipeline.script_agent import generate_shot_plan, revise_shot_plan
@@ -216,26 +220,27 @@ def run_video_stage(self, project_id, scene_index=None):
     time_limit=18 * 60,
 )
 def run_voice_stage(self, project_id, scene_index=None):
-    project = Project.objects.get(id=project_id)
+    project = Project.objects.select_related("owner").get(id=project_id)
     if project.status == Status.FAILED:
         return {"project_id": project_id, "scene_index": scene_index}
+
     if scene_index is None:
         publish_event(project_id, Stage.VOICE, Level.INFO, "Generating voiceover")
-    else:
-        publish_event(project_id, Stage.VOICE, Level.INFO, f"Generating voiceover for scene {scene_index}")
 
     try:
-        work_dir = get_work_dir(project)
-        work_dir.mkdir(parents=True, exist_ok=True)
-        # TODO: call actual TTS backend (edge-tts is free, no key needed)
         if scene_index is None:
+            generate_all_scene_voices(project)
             publish_event(project_id, Stage.VOICE, Level.INFO, "Voiceover done")
         else:
-            publish_event(project_id, Stage.VOICE, Level.INFO, f"Voiceover done for scene {scene_index}")
+            scene = Scene.objects.get(project_id=project_id, index=scene_index)
+            generate_scene_voice(project, scene, scene.index)
+    except (ConnectionError, TimeoutError) as exc:
+        handle_transient_error(self, project, project_id, Stage.VOICE, exc)
     except Exception as exc:
-        is_transient = isinstance(exc, (ConnectionError, TimeoutError))
-        message = "Voiceover failed (will retry)" if is_transient else f"Voiceover failed: {exc}"
-        publish_event(project_id, Stage.VOICE, Level.ERROR, message)
+        if project.status in (Status.GENERATING, Status.VIDEO_GENERATING):
+            fail_project(project, project_id, Stage.VOICE, exc)
+        else:
+            publish_event(project_id, Stage.VOICE, Level.ERROR, f"Voiceover failed: {exc}")
         raise
 
     return {"project_id": project_id, "scene_index": scene_index}
@@ -258,17 +263,20 @@ def run_assemble_stage(self, project_id):
     publish_event(project_id, Stage.ASSEMBLE, Level.INFO, "Assembling final video")
 
     try:
-        work_dir = get_work_dir(project)
-        work_dir.mkdir(parents=True, exist_ok=True)
-        # TODO: call actual FFmpeg assembly (no external API, no key needed)
+        work_dir, plan = materialize_work_dir(project)
+        music = pick_music(music_root(), plan.music_mood)
+        final = assemble(plan, work_dir, music_path=music)
+        if project.final_video_path:
+            project.final_video_path.delete(save=False)
+        storage_provider.upload(project.final_video_path, final, save=False)
         project.stale = False
-        project.save(update_fields=["stale", "updated_at"])
+        project.save(update_fields=["stale", "final_video_path", "updated_at"])
         project.transition_status(Status.DONE)
         publish_event(project_id, Stage.ASSEMBLE, Level.INFO, "Assembly complete")
+    except (ConnectionError, TimeoutError) as exc:
+        handle_transient_error(self, project, project_id, Stage.ASSEMBLE, exc)
     except Exception as exc:
-        is_transient = isinstance(exc, (ConnectionError, TimeoutError))
-        message = "Assembly failed (will retry)" if is_transient else f"Assembly failed: {exc}"
-        publish_event(project_id, Stage.ASSEMBLE, Level.ERROR, message)
+        fail_project(project, project_id, Stage.ASSEMBLE, exc)
         raise
 
     return {"project_id": project_id}
@@ -280,9 +288,10 @@ def mark_pipeline_failed(task_id, project_id):
     logger.error("Pipeline task %s failed for project %s", task_id, project_id)
     try:
         project = Project.objects.get(id=project_id)
-        project.error = f"Pipeline task {task_id} failed"
-        project.save(update_fields=["error", "updated_at"])
-        project.transition_status(Status.FAILED)
-        publish_event(project_id, Stage.IMAGES, Level.ERROR, f"Pipeline failed (task {task_id})")
+        if project.status != Status.FAILED:
+            project.error = f"Pipeline task {task_id} failed"
+            project.save(update_fields=["error", "updated_at"])
+            project.transition_status(Status.FAILED)
+            publish_event(project_id, Stage.IMAGES, Level.ERROR, f"Pipeline failed (task {task_id})")
     except Project.DoesNotExist:
         logger.warning("Project %s not found when marking failed", project_id)

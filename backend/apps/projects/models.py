@@ -14,6 +14,7 @@ from apps.projects.constants import (
     Stage,
     Status,
     StylePreset,
+    VoiceStatus,
 )
 
 
@@ -58,6 +59,10 @@ def scene_media_upload_path(instance: "Scene", filename) -> str:
         return f"{instance.project.owner_id}/{instance.project.id}/clip/{filename}"
     else:
         return f"{instance.project.owner_id}/{instance.project.id}/images/{filename}"
+
+
+def scene_audio_upload_path(instance: "Scene", filename) -> str:
+    return f"{instance.project.owner_id}/{instance.project.id}/audio/{filename}"
 
 def video_upload_path(instance: "Project", filename) -> str:
     return f"{instance.owner_id}/{instance.id}/videos/{filename}"
@@ -131,9 +136,15 @@ class Scene(TimestampMixin):
     on_screen_text = models.CharField(max_length=256, blank=True, default="")
     negative_prompt = models.TextField(max_length=256, blank=True, default="")
     animate        = models.BooleanField(default=False)
+    voice          = models.CharField(max_length=100, blank=True, default="")
     media_path     = models.FileField(upload_to=scene_media_upload_path, blank=True, default="")
+    audio_path     = models.FileField(upload_to=scene_audio_upload_path, blank=True, default="")
+    words_path     = models.FileField(upload_to=scene_audio_upload_path, blank=True, default="")
     media_status   = models.CharField(
         max_length=20, choices=MediaStatus.choices, default=MediaStatus.PENDING
+    )
+    voice_status   = models.CharField(
+        max_length=20, choices=VoiceStatus.choices, default=VoiceStatus.PENDING
     )
     media_provider = models.CharField(max_length=50, blank=True, default="")
 

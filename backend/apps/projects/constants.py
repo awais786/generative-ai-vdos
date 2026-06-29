@@ -29,6 +29,13 @@ class MediaStatus(models.TextChoices):
     FAILED = "FAILED"
 
 
+class VoiceStatus(models.TextChoices):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    DONE = "DONE"
+    FAILED = "FAILED"
+
+
 class Level(models.TextChoices):
     INFO = "info"
     WARN = "warn"

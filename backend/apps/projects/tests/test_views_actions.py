@@ -53,7 +53,10 @@ class ProjectActionsTest(TestCase):
 
     @patch("apps.projects.views._eager_thread")
     def test_regenerate_voiceovers_sets_stale_and_dispatches(self, eager_thread):
-        resp = self.client.post(f"/api/projects/{self.project.id}/regenerate-voiceovers/")
+        resp = self.client.post(
+            f"/api/projects/{self.project.id}/regenerate-voiceovers/",
+            content_type="application/json",
+        )
         self.assertEqual(resp.status_code, 202)
         self.project.refresh_from_db()
         self.assertTrue(self.project.stale)

@@ -23,6 +23,11 @@ urlpatterns = router.urls + [
         name="project-scenes-media-urls",
     ),
     path(
+        "projects/<uuid:project_pk>/scenes/<int:index>/audio-urls/",
+        SceneViewSet.as_view({"get": "audio_urls"}),
+        name="project-scenes-audio-urls",
+    ),
+    path(
         "projects/<uuid:project_pk>/scenes/<int:index>/regenerate/",
         SceneViewSet.as_view({"post": "regenerate"}),
         name="project-scenes-regenerate",

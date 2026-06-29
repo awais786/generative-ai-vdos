@@ -7,6 +7,7 @@ from apps.core.moderation.blocklist import contains_blocked_term
 from apps.core.moderation.exceptions import ContentPolicyViolation
 from apps.core.moderation.drf import (
     ContentPolicyAPIException,
+    POLICY_MESSAGE,
     blocked_response,
     validate_user_text,
 )

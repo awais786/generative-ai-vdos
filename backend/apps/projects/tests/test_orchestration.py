@@ -1,4 +1,3 @@
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -49,19 +48,18 @@ class RunImagesTest(TestCase):
 
 
 class RunVoiceTest(TestCase):
-    @patch("apps.projects.tasks.get_work_dir")
-    def test_voice_success(self, mock_work_dir):
-        mock_work_dir.return_value = Path(tempfile.mkdtemp())
+    @patch("apps.projects.tasks.generate_all_scene_voices")
+    def test_voice_success(self, mock_voice):
         project = make_generating_project()
 
         run_voice(project.id)
 
         project.refresh_from_db()
         self.assertEqual(project.status, Status.GENERATING)
+        mock_voice.assert_called_once()
 
-    @patch("apps.projects.tasks.get_work_dir")
-    def test_voice_failure_marks_project_failed(self, mock_work_dir):
-        mock_work_dir.side_effect = RuntimeError("boom")
+    @patch("apps.projects.tasks.generate_all_scene_voices", side_effect=RuntimeError("boom"))
+    def test_voice_failure_marks_project_failed(self, mock_voice):
         project = make_generating_project()
 
         run_voice(project.id)
@@ -71,9 +69,26 @@ class RunVoiceTest(TestCase):
 
 
 class RunAssemblyTest(TestCase):
-    @patch("apps.projects.tasks.get_work_dir")
-    def test_assembly_marks_done(self, mock_work_dir):
-        mock_work_dir.return_value = Path(tempfile.mkdtemp())
+    @patch("apps.projects.tasks.pick_music", return_value=None)
+    @patch("apps.projects.tasks.assemble")
+    @patch("apps.projects.tasks.materialize_work_dir")
+    def test_assembly_marks_done(self, mock_materialize, mock_assemble, _pick):
+        import tempfile
+        from pipeline.schema import ShotPlan
+
+        work_dir = Path(tempfile.mkdtemp())
+        final = work_dir / "final.mp4"
+        final.write_bytes(b"mp4")
+        plan = ShotPlan(
+            title="T",
+            description="d",
+            tags=["t"],
+            music_mood="calm",
+            style_prefix="cinematic",
+            scenes=[],
+        )
+        mock_materialize.return_value = (work_dir, plan)
+        mock_assemble.return_value = final
         project = make_generating_project()
 
         run_assembly(project.id)
@@ -81,9 +96,8 @@ class RunAssemblyTest(TestCase):
         project.refresh_from_db()
         self.assertEqual(project.status, Status.DONE)
 
-    @patch("apps.projects.tasks.get_work_dir")
-    def test_assembly_failure_marks_project_failed(self, mock_work_dir):
-        mock_work_dir.side_effect = RuntimeError("boom")
+    @patch("apps.projects.tasks.materialize_work_dir", side_effect=RuntimeError("boom"))
+    def test_assembly_failure_marks_project_failed(self, mock_materialize):
         project = make_generating_project()
 
         run_assembly(project.id)

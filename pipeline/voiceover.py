@@ -5,18 +5,47 @@ for free — no whisper pass needed.
 """
 import asyncio
 import json
+import re
+import time
 from pathlib import Path
 from typing import List, Optional
 
 import edge_tts
+from edge_tts.exceptions import NoAudioReceived
 
 from .schema import ShotPlan
 
 DEFAULT_VOICE = "en-US-AndrewNeural"
+_VOICE_RE = re.compile(r"^[a-z]{2}-[A-Z]{2}-.+Neural$")
+
+# Unicode punctuation that occasionally causes edge-tts to return no audio.
+_SMART_PUNCT = str.maketrans({
+    "\u2019": "'", "\u2018": "'",
+    "\u201c": '"', "\u201d": '"',
+    "\u2014": "-", "\u2013": "-",
+})
 
 
-async def _synth_scene(text: str, voice: str, mp3_path: Path, words_path: Path) -> None:
-    communicate = edge_tts.Communicate(text, voice, boundary="WordBoundary")
+def normalize_tts_text(text: str) -> str:
+    """Strip and normalize narration before sending to edge-tts."""
+    normalized = (text or "").strip().translate(_SMART_PUNCT)
+    if not normalized:
+        raise ValueError("Narration is empty")
+    return normalized
+
+
+def resolve_voice(scene_voice: str | None, default_voice: str) -> str:
+    """Pick a valid edge-tts voice id, falling back to the project narrator."""
+    for candidate in (scene_voice, default_voice, DEFAULT_VOICE):
+        if candidate and _VOICE_RE.match(candidate.strip()):
+            return candidate.strip()
+    return DEFAULT_VOICE
+
+
+async def synth_scene(text: str, voice: str, mp3_path: Path, words_path: Path) -> None:
+    narration = normalize_tts_text(text)
+    voice_id = resolve_voice(voice, DEFAULT_VOICE)
+    communicate = edge_tts.Communicate(narration, voice_id, boundary="WordBoundary")
     words = []
     with open(mp3_path, "wb") as f:
         async for chunk in communicate.stream():
@@ -31,20 +60,66 @@ async def _synth_scene(text: str, voice: str, mp3_path: Path, words_path: Path) 
     words_path.write_text(json.dumps(words, indent=2))
 
 
-def generate_voiceover(plan: ShotPlan, out_dir: Path, voice: Optional[str] = None) -> List[Path]:
+async def synth_scene_with_retry(
+    text: str,
+    voice: str,
+    mp3_path: Path,
+    words_path: Path,
+    *,
+    max_attempts: int = 4,
+    base_delay: float = 1.5,
+) -> None:
+    """Retry on transient edge-tts failures (rate limits, empty responses)."""
+    last_error: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            await synth_scene(text, voice, mp3_path, words_path)
+            return
+        except (NoAudioReceived, ConnectionError, TimeoutError, OSError) as exc:
+            last_error = exc
+            if attempt + 1 >= max_attempts:
+                break
+            delay = base_delay * (attempt + 1)
+            print(f"  voice: retry {attempt + 2}/{max_attempts} after {exc!r} "
+                  f"(sleep {delay:.1f}s)")
+            await asyncio.sleep(delay)
+    assert last_error is not None
+    raise last_error
+
+
+def synth_scene_sync(text: str, voice: str, mp3_path: Path, words_path: Path) -> None:
+    """Blocking wrapper for web workers and Celery tasks."""
+    asyncio.run(synth_scene_with_retry(text, voice, mp3_path, words_path))
+
+
+def generate_voiceover(
+    plan: ShotPlan,
+    out_dir: Path,
+    voice: Optional[str] = None,
+    scene_indices: Optional[List[int]] = None,
+) -> List[Path]:
     """Writes scene_NN.mp3 + scene_NN.words.json per scene. Returns mp3 paths."""
-    voice = voice or DEFAULT_VOICE
+    default_voice = resolve_voice(voice, DEFAULT_VOICE)
     out_dir.mkdir(parents=True, exist_ok=True)
-    mp3_paths = []
+    indices = (
+        list(scene_indices)
+        if scene_indices is not None
+        else list(range(len(plan.scenes)))
+    )
+    mp3_paths: List[Path] = []
 
     async def run_all():
-        for i, scene in enumerate(plan.scenes):
+        for i in indices:
+            scene = plan.scenes[i]
             mp3 = out_dir / f"scene_{i:02d}.mp3"
             words = out_dir / f"scene_{i:02d}.words.json"
-            scene_voice = scene.voice or voice
-            await _synth_scene(scene.narration, scene_voice, mp3, words)
+            scene_voice = resolve_voice(scene.voice, default_voice)
+            await synth_scene_with_retry(scene.narration, scene_voice, mp3, words)
             mp3_paths.append(mp3)
             print(f"  voice: scene {i + 1}/{len(plan.scenes)} ({scene_voice})")
+            # Brief pause between scenes to avoid edge-tts rate limits.
+            if i != indices[-1]:
+                await asyncio.sleep(0.4)
 
     asyncio.run(run_all())
     return mp3_paths

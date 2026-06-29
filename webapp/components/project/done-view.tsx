@@ -27,6 +27,12 @@ function stableMediaSrc(scene: Scene): string | undefined {
   return `${scene.media_path}?v=${encodeURIComponent(scene.updated_at ?? '')}`
 }
 
+function stableAudioSrc(scene: Scene): string | undefined {
+  if (!scene.audio_path || scene.voice_status !== 'DONE') return undefined
+  if (scene.audio_path.includes('?')) return scene.audio_path
+  return `${scene.audio_path}?v=${encodeURIComponent(scene.updated_at ?? '')}`
+}
+
 function isVideo(path: string): boolean {
   return path.split('?')[0].endsWith('.mp4')
 }
@@ -191,7 +197,7 @@ const DoneSceneCard = memo(function DoneSceneCard({
   const [expanded, setExpanded] = useState(false)
   const [mediaPrompt, setMediaPrompt] = useState(scene.media_prompt)
   const [narration, setNarration] = useState(scene.narration)
-  const [voice, setVoice] = useState(defaultVoice)
+  const [voice, setVoice] = useState(scene.voice || defaultVoice)
   const [isRegenerating, startRegen] = useTransition()
   const [isRevoicing, startRevoice] = useTransition()
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -232,9 +238,22 @@ const DoneSceneCard = memo(function DoneSceneCard({
       await fetch(`/api/projects/${projectId}/scenes/${scene.index}/revoice/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ narration, narrator_voice: voice }),
+        body: JSON.stringify({ narration, voice }),
       })
-      onSetStale()
+      if (pollRef.current) clearInterval(pollRef.current)
+      pollRef.current = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/projects/${projectId}/scenes/${scene.index}/`)
+          if (!res.ok) return
+          const updated: Scene = await res.json()
+          onSceneUpdate(updated)
+          if (updated.voice_status === 'DONE' || updated.voice_status === 'FAILED') {
+            clearInterval(pollRef.current!)
+            pollRef.current = null
+            if (updated.voice_status === 'DONE') onSetStale()
+          }
+        } catch { /* keep polling */ }
+      }, 2000)
     })
   }
 
@@ -382,6 +401,16 @@ const DoneSceneCard = memo(function DoneSceneCard({
                   {isRevoicing ? 'Queuing…' : 'Re-voice'}
                 </Button>
               </div>
+              {stableAudioSrc(scene) ? (
+                <audio
+                  controls
+                  preload="none"
+                  src={stableAudioSrc(scene)}
+                  className="w-full h-8"
+                />
+              ) : scene.voice_status === 'RUNNING' ? (
+                <p className="text-xs text-[#f0a35e]">Generating voiceover…</p>
+              ) : null}
             </div>
           </div>
         </div>

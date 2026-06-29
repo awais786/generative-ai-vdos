@@ -1,7 +1,21 @@
+import os
+
 from rest_framework import serializers
 
 from apps.core.moderation.drf import ModeratedFieldsMixin
+from apps.storage import storage_provider
 from apps.projects.models import JobLog, LLMModel, Project, Scene
+
+
+def _absolute_media_url(url: str, request) -> str:
+    if not url:
+        return ""
+    if url.startswith(("http://", "https://")):
+        return url
+    if request is not None:
+        return request.build_absolute_uri(url)
+    origin = os.environ.get("DJANGO_ORIGIN", "http://localhost:8000").rstrip("/")
+    return f"{origin}{url}"
 
 
 def _model_slug(capability):
@@ -14,18 +28,33 @@ def _model_slug(capability):
 
 
 class SceneSerializer(serializers.ModelSerializer):
+    media_path = serializers.SerializerMethodField()
+    audio_path = serializers.SerializerMethodField()
+
     class Meta:
         model = Scene
         fields = [
-            "id", "index", "narration", "media_prompt", "animate",
+            "id", "index", "narration", "media_prompt", "animate", "voice",
             "on_screen_text", "negative_prompt",
-            "media_path", "media_status", "media_provider",
+            "media_path", "audio_path", "media_status", "voice_status", "media_provider",
             "created_at", "updated_at",
         ]
         read_only_fields = [
-            "id", "index", "media_path", "media_status",
+            "id", "index", "media_status", "voice_status",
             "media_provider", "created_at", "updated_at",
         ]
+
+    def get_media_path(self, obj) -> str:
+        return _absolute_media_url(
+            storage_provider.url(obj.media_path) or "",
+            self.context.get("request"),
+        )
+
+    def get_audio_path(self, obj) -> str:
+        return _absolute_media_url(
+            storage_provider.url(obj.audio_path) or "",
+            self.context.get("request"),
+        )
 
 
 class SceneUpdateSerializer(ModeratedFieldsMixin, serializers.ModelSerializer):
