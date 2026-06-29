@@ -14,7 +14,7 @@ interface Props {
 
 const VOICES = [
   { value: 'en-US-AndrewNeural', label: 'Andrew (US Male)' },
-  { value: 'en-US-RyanNeural', label: 'Ryan (GB Male)' },
+  { value: 'en-US-RyanNeural', label: 'Ryan (US Male)' },
   { value: 'en-US-AvaNeural', label: 'Ava (US Female)' },
 ]
 
@@ -200,9 +200,13 @@ const DoneSceneCard = memo(function DoneSceneCard({
   const [voice, setVoice] = useState(scene.voice || defaultVoice)
   const [isRegenerating, startRegen] = useTransition()
   const [isRevoicing, startRevoice] = useTransition()
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const mediaPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const voicePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
+  useEffect(() => () => {
+    if (mediaPollRef.current) clearInterval(mediaPollRef.current)
+    if (voicePollRef.current) clearInterval(voicePollRef.current)
+  }, [])
 
   const imgColor = IMG_STATUS_COLOR[scene.media_status] ?? '#9aa3b2'
 
@@ -215,16 +219,16 @@ const DoneSceneCard = memo(function DoneSceneCard({
         body: JSON.stringify({ prompt: mediaPrompt }),
       })
       // Poll until the background task finishes so media_path updates without a reload.
-      if (pollRef.current) clearInterval(pollRef.current)
-      pollRef.current = setInterval(async () => {
+      if (mediaPollRef.current) clearInterval(mediaPollRef.current)
+      mediaPollRef.current = setInterval(async () => {
         try {
           const res = await fetch(`/api/projects/${projectId}/scenes/${scene.index}/`)
           if (!res.ok) return
           const updated: Scene = await res.json()
           onStatusChange(scene.index, updated.media_status)
           if (updated.media_status === 'DONE' || updated.media_status === 'FAILED') {
-            clearInterval(pollRef.current!)
-            pollRef.current = null
+            clearInterval(mediaPollRef.current!)
+            mediaPollRef.current = null
             onSceneUpdate(updated)
             if (updated.media_status === 'DONE') onSetStale()
           }
@@ -235,21 +239,30 @@ const DoneSceneCard = memo(function DoneSceneCard({
 
   function handleRevoice() {
     startRevoice(async () => {
-      await fetch(`/api/projects/${projectId}/scenes/${scene.index}/revoice/`, {
+      const res = await fetch(`/api/projects/${projectId}/scenes/${scene.index}/revoice/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ narration, voice }),
       })
-      if (pollRef.current) clearInterval(pollRef.current)
-      pollRef.current = setInterval(async () => {
+      if (!res.ok) return
+
+      const queued: Scene = await res.json()
+      onSceneUpdate(queued)
+      if (queued.voice_status === 'DONE' || queued.voice_status === 'FAILED') {
+        if (queued.voice_status === 'DONE') onSetStale()
+        return
+      }
+
+      if (voicePollRef.current) clearInterval(voicePollRef.current)
+      voicePollRef.current = setInterval(async () => {
         try {
-          const res = await fetch(`/api/projects/${projectId}/scenes/${scene.index}/`)
-          if (!res.ok) return
-          const updated: Scene = await res.json()
+          const pollRes = await fetch(`/api/projects/${projectId}/scenes/${scene.index}/`)
+          if (!pollRes.ok) return
+          const updated: Scene = await pollRes.json()
           onSceneUpdate(updated)
           if (updated.voice_status === 'DONE' || updated.voice_status === 'FAILED') {
-            clearInterval(pollRef.current!)
-            pollRef.current = null
+            clearInterval(voicePollRef.current!)
+            voicePollRef.current = null
             if (updated.voice_status === 'DONE') onSetStale()
           }
         } catch { /* keep polling */ }

@@ -111,6 +111,10 @@ def generate_voiceover(
         if scene_indices is not None
         else list(range(len(plan.scenes)))
     )
+    invalid = [i for i in indices if i < 0 or i >= len(plan.scenes)]
+    if invalid:
+        raise ValueError(f"Invalid scene indices: {invalid}")
+
     mp3_paths: List[Path] = []
 
     async def run_all():

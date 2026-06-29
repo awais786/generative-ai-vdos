@@ -20,7 +20,7 @@ const VIDEO_MODELS = [
 
 const VOICES = [
   { value: 'en-US-AndrewNeural', label: 'Andrew (US Male)' },
-  { value: 'en-US-RyanNeural', label: 'Ryan (GB Male)' },
+  { value: 'en-US-RyanNeural', label: 'Ryan (US Male)' },
   { value: 'en-US-AvaNeural', label: 'Ava (US Female)' },
 ]
 

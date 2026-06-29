@@ -32,14 +32,18 @@ def materialize_work_dir(project: Project) -> tuple[Path, ShotPlan]:
 
     for scene in project.scenes.order_by("index"):
         prefix = f"scene_{scene.index:02d}"
-        if scene.media_path:
-            ext = Path(scene.media_path.name).suffix.lower()
-            if ext == ".mp4":
-                _download_field(scene.media_path, video_dir / f"{prefix}.mp4")
-            else:
-                _download_field(scene.media_path, images_dir / f"{prefix}.png")
-        if scene.audio_path:
-            _download_field(scene.audio_path, audio_dir / f"{prefix}.mp3")
+        if not scene.media_path:
+            raise FileNotFoundError(f"scene {scene.index} is missing media_path")
+        if not scene.audio_path:
+            raise FileNotFoundError(f"scene {scene.index} is missing audio_path")
+
+        ext = Path(scene.media_path.name).suffix.lower()
+        if ext == ".mp4":
+            _download_field(scene.media_path, video_dir / f"{prefix}.mp4")
+        else:
+            _download_field(scene.media_path, images_dir / f"{prefix}.png")
+
+        _download_field(scene.audio_path, audio_dir / f"{prefix}.mp3")
         if scene.words_path:
             _download_field(scene.words_path, audio_dir / f"{prefix}.words.json")
 

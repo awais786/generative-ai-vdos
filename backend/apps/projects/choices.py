@@ -62,5 +62,5 @@ class StylePreset(models.TextChoices):
 
 class NarratorVoice(models.TextChoices):
     ANDREW = "en-US-AndrewNeural", "Andrew (US Male)"
-    RYAN = "en-US-RyanNeural", "Ryan (GB Male)"
+    RYAN = "en-US-RyanNeural", "Ryan (US Male)"
     AVA = "en-US-AvaNeural", "Ava (US Female)"

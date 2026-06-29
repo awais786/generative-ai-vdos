@@ -3,7 +3,7 @@ import logging
 from celery import shared_task
 
 from apps.storage import storage_provider
-from apps.projects.choices import MediaStatus, Level, Stage, Status
+from apps.projects.choices import MediaStatus, Level, Stage, Status, VoiceStatus
 from apps.projects.models import Project, Scene
 from apps.projects.services import publish_event
 from apps.projects.utils import (
@@ -237,6 +237,11 @@ def run_voice_stage(self, project_id, scene_index=None):
     except (ConnectionError, TimeoutError) as exc:
         handle_transient_error(self, project, project_id, Stage.VOICE, exc)
     except Exception as exc:
+        if scene_index is None:
+            Scene.objects.filter(
+                project_id=project_id,
+                voice_status__in=[VoiceStatus.PENDING, VoiceStatus.RUNNING],
+            ).update(voice_status=VoiceStatus.FAILED)
         if project.status in (Status.GENERATING, Status.VIDEO_GENERATING):
             fail_project(project, project_id, Stage.VOICE, exc)
         else:
@@ -266,11 +271,12 @@ def run_assemble_stage(self, project_id):
         work_dir, plan = materialize_work_dir(project)
         music = pick_music(music_root(), plan.music_mood)
         final = assemble(plan, work_dir, music_path=music)
-        if project.final_video_path:
-            project.final_video_path.delete(save=False)
+        old_final_name = project.final_video_path.name if project.final_video_path else ""
         storage_provider.upload(project.final_video_path, final, save=False)
         project.stale = False
         project.save(update_fields=["stale", "final_video_path", "updated_at"])
+        if old_final_name and old_final_name != project.final_video_path.name:
+            storage_provider.storage.delete(old_final_name)
         project.transition_status(Status.DONE)
         publish_event(project_id, Stage.ASSEMBLE, Level.INFO, "Assembly complete")
     except (ConnectionError, TimeoutError) as exc:

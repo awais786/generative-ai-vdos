@@ -1,4 +1,5 @@
 from io import BytesIO
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -90,6 +91,19 @@ class RunVoiceStageTest(TestCase):
 
         self.assertEqual(captured["voice"], "en-US-AndrewNeural")
 
+    @patch("apps.projects.utils.generate_voiceover", side_effect=RuntimeError("boom"))
+    def test_batch_failure_marks_scenes_failed(self, _mock_gen):
+        self.scene.voice_status = VoiceStatus.PENDING
+        self.scene.save(update_fields=["voice_status", "updated_at"])
+        self.project.status = Status.DONE
+        self.project.save(update_fields=["status", "updated_at"])
+
+        with self.assertRaises(RuntimeError):
+            run_voice_stage(str(self.project.id))
+
+        self.scene.refresh_from_db()
+        self.assertEqual(self.scene.voice_status, VoiceStatus.FAILED)
+
 
 class RunAssembleStageTest(TestCase):
     def setUp(self):
@@ -125,9 +139,6 @@ class RunAssembleStageTest(TestCase):
     @patch("apps.projects.tasks.assemble")
     @patch("apps.projects.tasks.pick_music", return_value=None)
     def test_assemble_uploads_final_video(self, _pick, mock_assemble):
-        from pathlib import Path
-        import tempfile
-
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp.write(b"fake-mp4")
             final_path = Path(tmp.name)

@@ -53,7 +53,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         project = ProjectService.create(owner=request.user, **serializer.validated_data)
-        return Response(self.get_serializer(project).data, status=status.HTTP_201_CREATED)
+        return Response(
+            ProjectSerializer(project, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     def _get_locked_project(self):
         return self.get_queryset().select_for_update().get(pk=self.kwargs["pk"])

@@ -249,14 +249,16 @@ def animate_scene(project, scene, scene_index):
 
 
 def _upload_voice_files(scene, mp3_path: Path, words_path: Path) -> None:
-    if scene.audio_path:
-        scene.audio_path.delete(save=False)
-    if scene.words_path:
-        scene.words_path.delete(save=False)
+    old_audio_name = scene.audio_path.name if scene.audio_path else ""
+    old_words_name = scene.words_path.name if scene.words_path else ""
     storage_provider.upload(scene.audio_path, mp3_path, save=False)
     storage_provider.upload(scene.words_path, words_path, save=False)
     scene.voice_status = VoiceStatus.DONE
     scene.save(update_fields=["audio_path", "words_path", "voice_status", "updated_at"])
+    if old_audio_name and old_audio_name != scene.audio_path.name:
+        storage_provider.storage.delete(old_audio_name)
+    if old_words_name and old_words_name != scene.words_path.name:
+        storage_provider.storage.delete(old_words_name)
 
 
 def generate_all_scene_voices(project):
@@ -265,28 +267,35 @@ def generate_all_scene_voices(project):
     plan = build_shot_plan(project)
     audio_dir = get_work_dir(project) / "audio"
     default_voice = project.narrator_voice or DEFAULT_VOICE
+    scenes = list(Scene.objects.filter(project=project).order_by("index"))
 
-    generate_voiceover(plan, audio_dir, voice=default_voice)
-
-    for scene in Scene.objects.filter(project=project).order_by("index"):
-        idx = scene.index
-        mp3_path = audio_dir / f"scene_{idx:02d}.mp3"
-        words_path = audio_dir / f"scene_{idx:02d}.words.json"
-        if not mp3_path.is_file() or not words_path.is_file():
-            raise FileNotFoundError(f"voiceover output missing for scene {idx}")
-        scene.voice_status = VoiceStatus.RUNNING
-        scene.save(update_fields=["voice_status", "updated_at"])
-        publish_event(
-            project_id, Stage.VOICE, Level.INFO,
-            f"Uploading voiceover for scene {idx}",
-            scene_index=idx,
-        )
-        _upload_voice_files(scene, mp3_path, words_path)
-        publish_event(
-            project_id, Stage.VOICE, Level.INFO,
-            f"Scene {idx} voiceover done",
-            scene_index=idx,
-        )
+    try:
+        generate_voiceover(plan, audio_dir, voice=default_voice)
+        for scene in scenes:
+            idx = scene.index
+            mp3_path = audio_dir / f"scene_{idx:02d}.mp3"
+            words_path = audio_dir / f"scene_{idx:02d}.words.json"
+            if not mp3_path.is_file() or not words_path.is_file():
+                raise FileNotFoundError(f"voiceover output missing for scene {idx}")
+            scene.voice_status = VoiceStatus.RUNNING
+            scene.save(update_fields=["voice_status", "updated_at"])
+            publish_event(
+                project_id, Stage.VOICE, Level.INFO,
+                f"Uploading voiceover for scene {idx}",
+                scene_index=idx,
+            )
+            _upload_voice_files(scene, mp3_path, words_path)
+            publish_event(
+                project_id, Stage.VOICE, Level.INFO,
+                f"Scene {idx} voiceover done",
+                scene_index=idx,
+            )
+    except Exception:
+        Scene.objects.filter(
+            pk__in=[scene.pk for scene in scenes],
+            voice_status__in=[VoiceStatus.PENDING, VoiceStatus.RUNNING],
+        ).update(voice_status=VoiceStatus.FAILED)
+        raise
 
 
 def generate_scene_voice(project, scene, scene_index):
