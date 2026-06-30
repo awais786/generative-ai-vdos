@@ -1,6 +1,6 @@
 [Unit]
 Description=Generative AI Vdos Next.js frontend
-After=network.target backend.service
+After=network.target generative-ai-vdos-backend.service
 
 [Service]
 Type=simple

@@ -37,6 +37,7 @@ cd "$APP_DIR"
 .venv/bin/python backend/manage.py seed_providers
 
 echo "==> Systemd services"
+chmod +x "$APP_DIR/scripts/deploy/start-backend.sh"
 sudo cp "$APP_DIR/scripts/deploy/backend.service" /etc/systemd/system/generative-ai-vdos-backend.service
 sudo cp "$APP_DIR/scripts/deploy/frontend.service" /etc/systemd/system/generative-ai-vdos-frontend.service
 sudo systemctl daemon-reload

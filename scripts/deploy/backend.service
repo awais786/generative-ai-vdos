@@ -9,7 +9,7 @@ Group=ubuntu
 WorkingDirectory=/home/ubuntu/generative-ai-vdos
 EnvironmentFile=/home/ubuntu/generative-ai-vdos/.env
 Environment=DJANGO_SETTINGS_MODULE=config.settings.development
-ExecStart=/home/ubuntu/generative-ai-vdos/.venv/bin/gunicorn config.wsgi:application --chdir backend --bind 127.0.0.1:8000 --workers 1 --timeout 120
+ExecStart=/home/ubuntu/generative-ai-vdos/scripts/deploy/start-backend.sh
 Restart=on-failure
 RestartSec=5
 
