@@ -11,13 +11,15 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
 
 echo "==> Installing uv"
 if ! command -v uv >/dev/null 2>&1; then
-  curl -LsSf https://astral.sh/uv/install.sh | sh
+  curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-install.sh
+  sh /tmp/uv-install.sh
 fi
 export PATH="$HOME/.local/bin:$PATH"
 
 echo "==> Installing Node.js 20"
 if ! command -v node >/dev/null 2>&1; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  curl -fsSL https://deb.nodesource.com/setup_20.x -o /tmp/nodesource-setup.sh
+  sudo -E bash /tmp/nodesource-setup.sh
   sudo apt-get install -y -qq nodejs
 fi
 

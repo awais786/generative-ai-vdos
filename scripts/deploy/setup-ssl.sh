@@ -23,13 +23,21 @@ sudo certbot --nginx -d "$DOMAIN" \
 
 echo "==> Updating .env for HTTPS"
 ENV_FILE="$APP_DIR/.env"
-sudo -u ubuntu sed -i \
-  -e "s|^FRONTEND_URL=.*|FRONTEND_URL=${BASE_URL}|" \
-  -e "s|^CORS_ALLOWED_ORIGINS=.*|CORS_ALLOWED_ORIGINS=${BASE_URL}|" \
-  -e "s|^COGNITO_REDIRECT_URI=.*|COGNITO_REDIRECT_URI=${BASE_URL}/api/auth/callback|" \
-  -e "s|^COGNITO_LOGOUT_REDIRECT_URI=.*|COGNITO_LOGOUT_REDIRECT_URI=${BASE_URL}|" \
-  -e "s|^DJANGO_ALLOWED_HOSTS=.*|DJANGO_ALLOWED_HOSTS=${DOMAIN},32.199.181.8,localhost,127.0.0.1|" \
-  "$ENV_FILE"
+
+set_env() {
+  local key="$1" value="$2"
+  if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+    sudo -u ubuntu sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+  else
+    echo "${key}=${value}" | sudo -u ubuntu tee -a "$ENV_FILE" >/dev/null
+  fi
+}
+
+set_env FRONTEND_URL "$BASE_URL"
+set_env CORS_ALLOWED_ORIGINS "$BASE_URL"
+set_env COGNITO_REDIRECT_URI "${BASE_URL}/api/auth/callback"
+set_env COGNITO_LOGOUT_REDIRECT_URI "$BASE_URL"
+set_env DJANGO_ALLOWED_HOSTS "${DOMAIN},32.199.181.8,localhost,127.0.0.1"
 
 echo "==> Restart app services"
 sudo systemctl restart generative-ai-vdos-backend generative-ai-vdos-frontend
