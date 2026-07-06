@@ -15,7 +15,7 @@ from typing import Optional
 
 from dashscope import VideoSynthesis
 
-from ..env import configure_dashscope_sdk
+from ..env import dashscope_configured
 from .base import VideoProvider
 
 # Quality tiers — verify model IDs in your DashScope console if one errors.
@@ -41,27 +41,27 @@ class WanProvider(VideoProvider):
         return bool(os.environ.get("DASHSCOPE_API_KEY"))
 
     def submit(self, prompt: str, image_path: Path, api_key=None) -> str:
-        configure_dashscope_sdk(base_url=getattr(api_key, "api_url", None))
         key = api_key.decrypt() if api_key else None
         img_url = "file://" + str(image_path)
-        rsp = VideoSynthesis.async_call(
-            model=self._model,
-            prompt=prompt,
-            img_url=img_url,
-            resolution=RESOLUTION,
-            duration=MAX_DURATION,
-            prompt_extend=True,
-            watermark=False,
-            api_key=key,
-        )
+        with dashscope_configured(base_url=getattr(api_key, "api_url", None)):
+            rsp = VideoSynthesis.async_call(
+                model=self._model,
+                prompt=prompt,
+                img_url=img_url,
+                resolution=RESOLUTION,
+                duration=MAX_DURATION,
+                prompt_extend=True,
+                watermark=False,
+                api_key=key,
+            )
         if rsp.status_code != 200:
             raise RuntimeError(f"wan submit failed [{rsp.code}]: {rsp.message}")
         return rsp.output.task_id
 
     def poll(self, task_id: str, api_key=None) -> Optional[str]:
-        configure_dashscope_sdk(base_url=getattr(api_key, "api_url", None))
         key = api_key.decrypt() if api_key else None
-        rsp = VideoSynthesis.fetch(task_id, api_key=key)
+        with dashscope_configured(base_url=getattr(api_key, "api_url", None)):
+            rsp = VideoSynthesis.fetch(task_id, api_key=key)
         if rsp.status_code != 200:
             raise RuntimeError(f"wan poll failed [{rsp.code}]: {rsp.message}")
         status = rsp.output.task_status

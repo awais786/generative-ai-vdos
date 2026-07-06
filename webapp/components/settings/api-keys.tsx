@@ -156,7 +156,7 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
               />
               {isDashscope(key.provider) && (
                 <input
-                  type="text"
+                  type="url"
                   placeholder="Workspace API URL (optional)"
                   value={editForm.api_url}
                   onChange={e => setEditForm(f => ({ ...f, api_url: e.target.value }))}
@@ -254,7 +254,7 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
           <select
             required
             value={form.provider}
-            onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}
+            onChange={e => setForm(f => ({ ...f, provider: e.target.value, api_url: '' }))}
             className={inputCls}
           >
             <option value="">Select provider…</option>
@@ -279,7 +279,7 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
           />
           {form.provider !== '' && isDashscope(Number(form.provider)) && (
             <input
-              type="text"
+              type="url"
               placeholder="Workspace API URL (optional)"
               value={form.api_url}
               onChange={e => setForm(f => ({ ...f, api_url: e.target.value }))}

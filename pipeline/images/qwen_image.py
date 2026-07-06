@@ -17,7 +17,7 @@ from dashscope import MultiModalConversation
 
 import logging
 
-from ..env import configure_dashscope_sdk
+from ..env import dashscope_configured
 from .base import ImageProvider
 from .util import to_png_bytes
 
@@ -125,14 +125,14 @@ class QwenImageProvider(ImageProvider):
 
     def _post_inner(self, model: str, content: list,
                     parameters: dict, api_key=None, on_preview_url=None) -> bytes:
-        configure_dashscope_sdk(base_url=getattr(api_key, "api_url", None))
-        key = api_key.decrypt() if api_key else os.environ.get("DASHSCOPE_API_KEY")
-        rsp = MultiModalConversation.call(
-            model=model,
-            messages=[{"role": "user", "content": content}],
-            api_key=key,
-            **parameters,
-        )
+        key = api_key.decrypt() if api_key else None
+        with dashscope_configured(base_url=getattr(api_key, "api_url", None)):
+            rsp = MultiModalConversation.call(
+                model=model,
+                messages=[{"role": "user", "content": content}],
+                api_key=key,
+                **parameters,
+            )
         if rsp.status_code != 200:
             raise RuntimeError(f"qwen image failed [{rsp.code}]: {rsp.message}")
         image_url = rsp.output.choices[0].message.content[0]["image"]
