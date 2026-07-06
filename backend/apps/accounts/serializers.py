@@ -14,7 +14,7 @@ class UserAPIKeySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UserAPIKey
-        fields = ["id", "provider", "api_key", "key_hint", "label", "created_at"]
+        fields = ["id", "provider", "api_key", "key_hint", "label", "api_url", "created_at"]
         read_only_fields = ["id", "key_hint", "created_at"]
 
     def get_extra_kwargs(self):
@@ -39,5 +39,8 @@ class UserAPIKeySerializer(serializers.ModelSerializer):
         if "label" in validated_data:
             instance.label = validated_data["label"]
             update_fields.append("label")
+        if "api_url" in validated_data:
+            instance.api_url = validated_data["api_url"]
+            update_fields.append("api_url")
         instance.save(update_fields=update_fields)
         return instance

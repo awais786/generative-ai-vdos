@@ -37,8 +37,13 @@ def dashscope_base_url() -> str:
     return url.rstrip("/")
 
 
-def configure_dashscope_sdk() -> None:
-    """Apply API key and base URL to the dashscope SDK module globals."""
+def configure_dashscope_sdk(base_url: str | None = None) -> None:
+    """Apply API key and base URL to the dashscope SDK module globals.
+
+    `base_url` overrides the env-derived default — used for a per-user
+    DashScope workspace endpoint (UserAPIKey.api_url) when calling on a
+    user's behalf.
+    """
     import dashscope
     dashscope.api_key = os.environ.get("DASHSCOPE_API_KEY") or ""
-    dashscope.base_http_api_url = dashscope_base_url()
+    dashscope.base_http_api_url = base_url or dashscope_base_url()

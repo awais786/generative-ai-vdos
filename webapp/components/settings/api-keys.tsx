@@ -14,6 +14,7 @@ export interface ApiKey {
   provider: number
   key_hint: string
   label: string
+  api_url: string
   created_at: string
 }
 
@@ -34,12 +35,12 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
   const [editingId, setEditingId] = useState<number | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
   const [error, setError] = useState('')
-  const [form, setForm] = useState({ provider: '', api_key: '', label: '' })
-  const [editForm, setEditForm] = useState({ api_key: '', label: '' })
+  const [form, setForm] = useState({ provider: '', api_key: '', label: '', api_url: '' })
+  const [editForm, setEditForm] = useState({ api_key: '', label: '', api_url: '' })
 
   // js-index-maps: O(1) lookup instead of O(n) find on every render
   const providerMap = useMemo(
-    () => new Map(providers.map(p => [p.id, p.name])),
+    () => new Map(providers.map(p => [p.id, p])),
     [providers],
   )
   const usedIds = useMemo(() => new Set(keys.map(k => k.provider)), [keys])
@@ -48,7 +49,8 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
     [providers, usedIds],
   )
 
-  const providerName = (id: number) => providerMap.get(id) ?? String(id)
+  const providerName = (id: number) => providerMap.get(id)?.name ?? String(id)
+  const isDashscope = (id: number) => providerMap.get(id)?.code === 'dashscope'
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
@@ -60,6 +62,7 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
         provider: Number(form.provider),
         api_key: form.api_key,
         label: form.label,
+        api_url: form.api_url,
       }),
     })
     if (!res.ok) {
@@ -79,7 +82,7 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
     const newKey: ApiKey = await res.json()
     setKeys(prev => [...prev, newKey])
     setAdding(false)
-    setForm({ provider: '', api_key: '', label: '' })
+    setForm({ provider: '', api_key: '', label: '', api_url: '' })
   }
 
   async function handleDelete(id: number) {
@@ -92,7 +95,7 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
   async function handleUpdate(e: React.FormEvent, id: number) {
     e.preventDefault()
     setError('')
-    const body: Record<string, string> = { label: editForm.label }
+    const body: Record<string, string> = { label: editForm.label, api_url: editForm.api_url }
     if (editForm.api_key) body.api_key = editForm.api_key
     const res = await fetch(`/api/auth/keys/${id}/`, {
       method: 'PATCH',
@@ -103,7 +106,7 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
     const updated: ApiKey = await res.json()
     setKeys(prev => prev.map(k => (k.id === id ? updated : k)))
     setEditingId(null)
-    setEditForm({ api_key: '', label: '' })
+    setEditForm({ api_key: '', label: '', api_url: '' })
   }
 
   const isEmpty = keys.length === 0 && !adding
@@ -151,6 +154,15 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
                 onChange={e => setEditForm(f => ({ ...f, label: e.target.value }))}
                 className={inputCls}
               />
+              {isDashscope(key.provider) && (
+                <input
+                  type="text"
+                  placeholder="Workspace API URL (optional)"
+                  value={editForm.api_url}
+                  onChange={e => setEditForm(f => ({ ...f, api_url: e.target.value }))}
+                  className={inputCls}
+                />
+              )}
               {error && <p className="text-red-400 text-xs">{error}</p>}
               <div className="flex gap-2">
                 <Button type="submit" size="sm">Save</Button>
@@ -177,6 +189,9 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
                   {key.label && (
                     <span className="text-xs text-[#5a6275]">{key.label}</span>
                   )}
+                  {isDashscope(key.provider) && key.api_url && (
+                    <span className="text-xs text-[#5a6275] truncate">{key.api_url}</span>
+                  )}
                 </div>
               </div>
               <p className="text-xs text-[#5a6275] shrink-0 tabular-nums">
@@ -187,7 +202,7 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
                 size="sm"
                 onClick={() => {
                   setEditingId(key.id)
-                  setEditForm({ api_key: '', label: key.label })
+                  setEditForm({ api_key: '', label: key.label, api_url: key.api_url })
                   setConfirmDeleteId(null)
                   setError('')
                 }}
@@ -262,6 +277,15 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
             onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
             className={inputCls}
           />
+          {form.provider !== '' && isDashscope(Number(form.provider)) && (
+            <input
+              type="text"
+              placeholder="Workspace API URL (optional)"
+              value={form.api_url}
+              onChange={e => setForm(f => ({ ...f, api_url: e.target.value }))}
+              className={inputCls}
+            />
+          )}
           {error && <p className="text-red-400 text-xs">{error}</p>}
           <div className="flex gap-2">
             <Button type="submit" size="sm">Add key</Button>

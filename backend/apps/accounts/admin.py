@@ -19,7 +19,7 @@ class UserAPIKeyForm(forms.ModelForm):
 
     class Meta:
         model = UserAPIKey
-        fields = ["owner", "provider", "api_key", "label"]
+        fields = ["owner", "provider", "api_key", "label", "api_url"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -27,6 +27,9 @@ class UserAPIKeyForm(forms.ModelForm):
             self.fields["api_key"].required = True
         self.fields["provider"].help_text = (
             "OpenAI → sk-... | Google → AIza... | DashScope → sk-... | Anthropic → sk-ant-..."
+        )
+        self.fields["api_url"].help_text = (
+            "Optional workspace endpoint override — only used for DashScope."
         )
 
     def save(self, commit=True):

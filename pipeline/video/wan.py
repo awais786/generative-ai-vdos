@@ -41,7 +41,7 @@ class WanProvider(VideoProvider):
         return bool(os.environ.get("DASHSCOPE_API_KEY"))
 
     def submit(self, prompt: str, image_path: Path, api_key=None) -> str:
-        configure_dashscope_sdk()
+        configure_dashscope_sdk(base_url=getattr(api_key, "api_url", None))
         key = api_key.decrypt() if api_key else None
         img_url = "file://" + str(image_path)
         rsp = VideoSynthesis.async_call(
@@ -59,7 +59,7 @@ class WanProvider(VideoProvider):
         return rsp.output.task_id
 
     def poll(self, task_id: str, api_key=None) -> Optional[str]:
-        configure_dashscope_sdk()
+        configure_dashscope_sdk(base_url=getattr(api_key, "api_url", None))
         key = api_key.decrypt() if api_key else None
         rsp = VideoSynthesis.fetch(task_id, api_key=key)
         if rsp.status_code != 200:

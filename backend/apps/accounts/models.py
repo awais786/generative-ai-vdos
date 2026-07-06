@@ -25,6 +25,9 @@ class UserAPIKey(TimestampMixin):
     _api_key_enc = models.BinaryField(editable=False)
     key_hint     = models.CharField(max_length=12, editable=False, default="")
     label        = models.CharField(max_length=100, blank=True, default="")
+    # Optional per-provider endpoint override — currently only meaningful for
+    # DashScope, whose workspace URL varies per account.
+    api_url      = models.URLField(max_length=500, blank=True, default="")
 
     class Meta:
         verbose_name = "User API Key"
@@ -51,4 +54,4 @@ class UserAPIKey(TimestampMixin):
             self.key_hint = plaintext[:4] + "••••" + plaintext[-4:]
 
     def get_secure_key(self) -> SecureString:
-        return SecureString(bytes(self._api_key_enc))
+        return SecureString(bytes(self._api_key_enc), api_url=self.api_url or None)

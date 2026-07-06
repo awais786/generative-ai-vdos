@@ -125,7 +125,7 @@ class QwenImageProvider(ImageProvider):
 
     def _post_inner(self, model: str, content: list,
                     parameters: dict, api_key=None, on_preview_url=None) -> bytes:
-        configure_dashscope_sdk()
+        configure_dashscope_sdk(base_url=getattr(api_key, "api_url", None))
         key = api_key.decrypt() if api_key else os.environ.get("DASHSCOPE_API_KEY")
         rsp = MultiModalConversation.call(
             model=model,

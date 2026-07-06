@@ -23,10 +23,11 @@ def encrypt_string(plaintext: str) -> bytes:
 
 
 class SecureString:
-    __slots__ = ("_enc",)
+    __slots__ = ("_enc", "api_url")
 
-    def __init__(self, encrypted_bytes: bytes):
+    def __init__(self, encrypted_bytes: bytes, api_url: str | None = None):
         self._enc = encrypted_bytes
+        self.api_url = api_url
 
     def decrypt(self) -> str:
         return get_fernet().decrypt(self._enc).decode()
