@@ -56,6 +56,7 @@ frontend:
 		echo "No webapp/ yet - run make install-web first"; \
 	fi
 
+prod: export DJANGO_SETTINGS_MODULE = config.settings.deployment
 prod:
 	uv sync --all-extras
 	@command -v redis-cli >/dev/null 2>&1 || (echo "ERROR: redis not found - brew install redis" && exit 1)
