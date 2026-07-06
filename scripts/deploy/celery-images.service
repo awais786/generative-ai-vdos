@@ -9,7 +9,7 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/generative-ai-vdos
 EnvironmentFile=/home/ubuntu/generative-ai-vdos/.env
-Environment=DJANGO_SETTINGS_MODULE=config.settings.deployment
+Environment=DJANGO_SETTINGS_MODULE=config.settings.production
 Environment=PYTHONPATH=backend
 ExecStart=/home/ubuntu/generative-ai-vdos/.venv/bin/python -m celery -A config worker -l info -Q images -n images@%%h --concurrency 2
 Restart=on-failure
