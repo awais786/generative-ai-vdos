@@ -46,6 +46,7 @@ def _fake_shot_plan(scene_count=2):
         s.negative_prompt = ""
         s.animate = False
         s.voice = None
+        s.compose = None
         scenes.append(s)
     plan.scenes = scenes
     return plan

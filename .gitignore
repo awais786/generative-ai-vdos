@@ -37,3 +37,4 @@ webapp/node_modules/
 webapp/.next/
 
 *.zip
+workdirs/*

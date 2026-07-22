@@ -14,16 +14,25 @@ interface Props {
 export default function FailedView({ project, onUpdate }: Props) {
   const router = useRouter()
   const [isRetrying, startRetry] = useTransition()
+  const [retryError, setRetryError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [isDeleting, startDelete] = useTransition()
 
   function handleRetry() {
+    setRetryError(null)
     startRetry(async () => {
       const res = await fetch(`/api/projects/${project.id}/retry/`, {
         method: 'POST',
       })
       if (res.ok || res.status === 202) {
         onUpdate({ status: 'GENERATING', error: '' })
+      } else if (res.status === 429) {
+        const body = await res.json().catch(() => ({}))
+        setRetryError(
+          body.code === 'budget_exceeded'
+            ? 'Daily generation limit reached. Resets at 00:00 UTC.'
+            : `Rate limit hit — try again in ${res.headers.get('Retry-After') ?? 'a moment'}.`
+        )
       }
     })
   }
@@ -86,6 +95,9 @@ export default function FailedView({ project, onUpdate }: Props) {
         >
           {isRetrying ? 'Retrying…' : 'Retry generation'}
         </Button>
+        {retryError && (
+          <p className="text-xs text-[#f0a35e]">{retryError}</p>
+        )}
       </div>
     </div>
   )

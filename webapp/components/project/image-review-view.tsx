@@ -153,6 +153,7 @@ const ReviewSceneCard = memo(function ReviewSceneCard({
 }) {
   const [expanded, setExpanded] = useState(false)
   const [mediaPrompt, setMediaPrompt] = useState(scene.media_prompt)
+  const [regenError, setRegenError] = useState<string | null>(null)
   const [isRegenerating, startRegen] = useTransition()
   const mediaPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -163,13 +164,24 @@ const ReviewSceneCard = memo(function ReviewSceneCard({
   const imgColor = IMG_STATUS_COLOR[scene.media_status] ?? '#9aa3b2'
 
   function handleRegen() {
+    setRegenError(null)
     startRegen(async () => {
       const res = await fetch(`/api/projects/${projectId}/scenes/${scene.index}/regenerate/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: mediaPrompt }),
       })
-      if (!res.ok) return
+      if (!res.ok) {
+        if (res.status === 429) {
+          const body = await res.json().catch(() => ({}))
+          setRegenError(
+            body.code === 'budget_exceeded'
+              ? 'Daily generation limit reached. Resets at 00:00 UTC.'
+              : `Rate limit hit — try again in ${res.headers.get('Retry-After') ?? 'a moment'}.`
+          )
+        }
+        return
+      }
       onStatusChange(scene.index, 'RUNNING')
       if (mediaPollRef.current) clearInterval(mediaPollRef.current)
       mediaPollRef.current = setInterval(async () => {
@@ -296,6 +308,9 @@ const ReviewSceneCard = memo(function ReviewSceneCard({
               >
                 {isRegenerating || scene.media_status === 'RUNNING' ? 'Generating…' : 'Regenerate scene'}
               </Button>
+              {regenError && (
+                <p className="text-xs text-[#f0a35e] mt-1">{regenError}</p>
+              )}
             </div>
           </div>
         </div>

@@ -25,6 +25,9 @@ const LEVEL_COLOR: Record<string, string> = {
   error: '#f06a6a',
 }
 
+const BASE_INTERVAL = 3000
+const MAX_INTERVAL = 8000
+
 export default function GeneratingView({ project, onUpdate }: Props) {
   const router = useRouter()
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -45,77 +48,75 @@ export default function GeneratingView({ project, onUpdate }: Props) {
   useEffect(() => {
     let done = false
     let lastLogId = 0
+    let emptyCount = 0
+    let currentDelay = BASE_INTERVAL
+    let timerId: ReturnType<typeof setTimeout>
 
-    function finish(updated: Partial<Project>) {
+    function scheduleNext() {
       if (done) return
-      done = true
-      onUpdateRef.current(updated)
+      timerId = setTimeout(tick, currentDelay)
     }
 
-    // Poll scenes + project status every 3 s.
-    const scenePoll = setInterval(async () => {
+    async function tick() {
+      if (done) return
+
+      // Pause while the tab is hidden; resume on visibilitychange (below).
+      if (document.visibilityState === 'hidden') return
+
       try {
-        const res = await fetch(`/api/projects/${project.id}/`)
-        if (!res.ok) return
-        const updated: Project = await res.json()
-        setScenes(updated.scenes)
-        if (!['GENERATING', 'VIDEO_GENERATING'].includes(updated.status)) {
-          clearInterval(scenePoll)
-          clearInterval(logPoll)
-          finish(updated)
+        const [projectRes, logsRes] = await Promise.all([
+          fetch(`/api/projects/${project.id}/`),
+          fetch(`/api/projects/${project.id}/logs/?after=${lastLogId}`),
+        ])
+
+        if (projectRes.ok) {
+          const updated: Project = await projectRes.json()
+          setScenes(updated.scenes)
+          if (!['GENERATING', 'VIDEO_GENERATING'].includes(updated.status)) {
+            done = true
+            onUpdateRef.current(updated)
+            return
+          }
         }
-      } catch { /* keep polling */ }
-    }, 3000)
 
-    // Poll logs every 2 s, requesting only rows newer than the last seen id.
-    const logPoll = setInterval(async () => {
-      try {
-        const res = await fetch(
-          `/api/projects/${project.id}/logs/?after=${lastLogId}`
-        )
-        if (!res.ok) return
-        const newLogs: LogEntry[] = await res.json()
-        if (newLogs.length > 0) {
-          lastLogId = newLogs[newLogs.length - 1].id
-          setLogs(prev => [...prev, ...newLogs])
-        }
-      } catch { /* keep polling */ }
-    }, 2000)
-
-    return () => {
-      done = true
-      clearInterval(scenePoll)
-      clearInterval(logPoll)
-    }
-  }, [project.id])
-
-  useEffect(() => {
-    const es = new EventSource(`/api/projects/${project.id}/events/`)
-
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data)
-        if (data.scene_index != null && data.preview_url) {
-          setScenes(prev =>
-            prev.map(s =>
-              s.index === data.scene_index
-                ? { ...s, preview_url: data.preview_url }
-                : s
-            )
-          )
-        }
-        if (data.project_status === 'DONE' || data.project_status === 'FAILED') {
-          es.close()
+        if (logsRes.ok) {
+          const newLogs: LogEntry[] = await logsRes.json()
+          if (newLogs.length > 0) {
+            lastLogId = newLogs[newLogs.length - 1].id
+            setLogs(prev => [...prev, ...newLogs])
+            emptyCount = 0
+            currentDelay = BASE_INTERVAL
+          } else {
+            emptyCount++
+            // Exponential backoff capped at MAX_INTERVAL (8 s) so stage
+            // transitions (e.g., arriving at IMAGE_REVIEW) don't feel sluggish.
+            currentDelay = Math.min(BASE_INTERVAL * Math.pow(1.5, emptyCount), MAX_INTERVAL)
+          }
         }
       } catch {
-        // ignore malformed events
+        // Network error — keep polling at current interval.
+      }
+
+      scheduleNext()
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        // Reset backoff so the user sees fresh data quickly on tab return.
+        emptyCount = 0
+        currentDelay = BASE_INTERVAL
+        clearTimeout(timerId)
+        tick()
       }
     }
 
-    es.onerror = () => {}
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    scheduleNext()
 
     return () => {
-      es.close()
+      done = true
+      clearTimeout(timerId)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [project.id])
 

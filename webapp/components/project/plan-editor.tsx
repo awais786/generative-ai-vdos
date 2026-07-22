@@ -91,8 +91,14 @@ export default function PlanEditor({ project, onUpdate }: Props) {
         setRefineText('')
         onUpdate({ status: 'PLANNING' })
       } else {
-        const data: { detail?: string } = await res.json().catch(() => ({}))
-        setRefineError(data.detail ?? 'Refine failed. Please try again.')
+        const data: { detail?: string; code?: string } = await res.json().catch(() => ({}))
+        setRefineError(
+          res.status === 429
+            ? (data.code === 'budget_exceeded'
+                ? 'Daily generation limit reached. Resets at 00:00 UTC.'
+                : `Rate limit hit — try again in ${res.headers.get('Retry-After') ?? 'a moment'}.`)
+            : (data.detail ?? 'Refine failed. Please try again.')
+        )
       }
     })
   }
@@ -105,8 +111,14 @@ export default function PlanEditor({ project, onUpdate }: Props) {
       if (res.ok || res.status === 202) {
         onUpdate({status: 'GENERATING'})
       } else {
-        const data: { detail?: string } = await res.json().catch(() => ({}))
-        setPatchError(data.detail ?? 'Approve failed. Please try again.')
+        const data: { detail?: string; code?: string } = await res.json().catch(() => ({}))
+        setPatchError(
+          res.status === 429
+            ? (data.code === 'budget_exceeded'
+                ? 'Daily generation limit reached. Resets at 00:00 UTC.'
+                : `Rate limit hit — try again in ${res.headers.get('Retry-After') ?? 'a moment'}.`)
+            : (data.detail ?? 'Approve failed. Please try again.')
+        )
       }
     })
   }
