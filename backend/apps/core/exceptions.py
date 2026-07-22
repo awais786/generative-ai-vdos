@@ -17,7 +17,7 @@ def exception_handler(exc, context):
         return response
 
     # Lift the error code out of ErrorDetail so clients can key on it.
-    detail = response.data.get("detail")
+    detail = response.data.get("detail") if isinstance(response.data, dict) else None
     if hasattr(detail, "code"):
         response.data["code"] = detail.code
 

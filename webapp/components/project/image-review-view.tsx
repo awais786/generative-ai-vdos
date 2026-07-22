@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Project, Scene } from '@/lib/project-types'
+import { getActionErrorMessage } from '@/lib/api-errors'
 import { Button } from '@/components/ui/button'
 import StatusPill from './status-pill'
 
@@ -172,14 +173,8 @@ const ReviewSceneCard = memo(function ReviewSceneCard({
         body: JSON.stringify({ prompt: mediaPrompt }),
       })
       if (!res.ok) {
-        if (res.status === 429) {
-          const body = await res.json().catch(() => ({}))
-          setRegenError(
-            body.code === 'budget_exceeded'
-              ? 'Daily generation limit reached. Resets at 00:00 UTC.'
-              : `Rate limit hit — try again in ${res.headers.get('Retry-After') ?? 'a moment'}.`
-          )
-        }
+        const body = await res.json().catch(() => ({}))
+        setRegenError(getActionErrorMessage(res, body, 'Regeneration failed. Please try again.'))
         return
       }
       onStatusChange(scene.index, 'RUNNING')

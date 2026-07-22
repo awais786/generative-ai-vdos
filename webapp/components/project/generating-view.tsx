@@ -51,6 +51,7 @@ export default function GeneratingView({ project, onUpdate }: Props) {
     let emptyCount = 0
     let currentDelay = BASE_INTERVAL
     let timerId: ReturnType<typeof setTimeout>
+    let inFlight = false
 
     function scheduleNext() {
       if (done) return
@@ -59,10 +60,12 @@ export default function GeneratingView({ project, onUpdate }: Props) {
 
     async function tick() {
       if (done) return
+      if (inFlight) return
 
       // Pause while the tab is hidden; resume on visibilitychange (below).
       if (document.visibilityState === 'hidden') return
 
+      inFlight = true
       try {
         const [projectRes, logsRes] = await Promise.all([
           fetch(`/api/projects/${project.id}/`),
@@ -74,6 +77,7 @@ export default function GeneratingView({ project, onUpdate }: Props) {
           setScenes(updated.scenes)
           if (!['GENERATING', 'VIDEO_GENERATING'].includes(updated.status)) {
             done = true
+            inFlight = false
             onUpdateRef.current(updated)
             return
           }
@@ -97,6 +101,7 @@ export default function GeneratingView({ project, onUpdate }: Props) {
         // Network error — keep polling at current interval.
       }
 
+      inFlight = false
       scheduleNext()
     }
 

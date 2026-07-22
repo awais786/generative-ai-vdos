@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Project } from '@/lib/project-types'
+import { getActionErrorMessage } from '@/lib/api-errors'
 import { Button } from '@/components/ui/button'
 import StatusPill from './status-pill'
 
@@ -26,13 +27,9 @@ export default function FailedView({ project, onUpdate }: Props) {
       })
       if (res.ok || res.status === 202) {
         onUpdate({ status: 'GENERATING', error: '' })
-      } else if (res.status === 429) {
+      } else {
         const body = await res.json().catch(() => ({}))
-        setRetryError(
-          body.code === 'budget_exceeded'
-            ? 'Daily generation limit reached. Resets at 00:00 UTC.'
-            : `Rate limit hit — try again in ${res.headers.get('Retry-After') ?? 'a moment'}.`
-        )
+        setRetryError(getActionErrorMessage(res, body, 'Retry failed. Please try again.'))
       }
     })
   }
