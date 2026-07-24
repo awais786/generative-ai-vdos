@@ -19,6 +19,7 @@ from .serializers import (ProjectSerializer, ProjectCreateSerializer,
                           _absolute_media_url)
 from .services import ProjectService, _eager_thread, enforce_daily_budget
 from .utils import get_work_dir
+from .workdir import assemble_is_live
 from .tasks import (
     mark_pipeline_failed,
     run_assemble_stage,
@@ -250,6 +251,14 @@ class ProjectViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         work_dir = get_work_dir(instance)
         super().perform_destroy(instance)
+        assemble_dir = work_dir / "_assemble"
+        if assemble_dir.exists() and assemble_is_live(assemble_dir):
+            # Assembly task is in flight; its finally block cleans _assemble/.
+            # Clean siblings now so large files don't linger until cleanup_workdirs runs.
+            for child in work_dir.iterdir():
+                if child != assemble_dir:
+                    shutil.rmtree(child, ignore_errors=True)
+            return
         shutil.rmtree(work_dir, ignore_errors=True)
 
     @action(detail=True, methods=["get"])

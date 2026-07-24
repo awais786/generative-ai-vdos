@@ -5,6 +5,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from apps.projects.models import Project
+from apps.projects.workdir import assemble_is_live
 
 
 class Command(BaseCommand):
@@ -38,16 +39,20 @@ class Command(BaseCommand):
                 if not project_dir.is_dir():
                     continue
 
-                # Remove _assemble/ staging dirs regardless of project existence —
-                # they should never survive past the assemble task.
+                # Remove stale _assemble/ staging dirs; skip live ones (assembly
+                # task owns the dir and its finally block will clean it up).
                 assemble_dir = project_dir / "_assemble"
+                assemble_size = 0
                 if assemble_dir.exists():
-                    size = _dir_size(assemble_dir)
-                    self.stdout.write(f"  {'[dry-run] ' if dry_run else ''}stale _assemble/: {assemble_dir}  ({_fmt(size)})")
+                    if assemble_is_live(assemble_dir):
+                        self.stdout.write(f"  skipping live _assemble/: {assemble_dir}")
+                        continue
+                    assemble_size = _dir_size(assemble_dir)
+                    self.stdout.write(f"  {'[dry-run] ' if dry_run else ''}stale _assemble/: {assemble_dir}  ({_fmt(assemble_size)})")
                     if not dry_run:
                         shutil.rmtree(assemble_dir, ignore_errors=True)
                     removed_dirs += 1
-                    freed_bytes += size
+                    freed_bytes += assemble_size
 
                 # Remove the entire project dir if the project no longer exists in DB.
                 try:
@@ -58,6 +63,10 @@ class Command(BaseCommand):
 
                 if project_dir.name not in {str(i) for i in existing_ids}:
                     size = _dir_size(project_dir)
+                    # In dry-run, _assemble wasn't actually removed, so subtract its
+                    # bytes to avoid double-counting (real run removes it first).
+                    if dry_run:
+                        size -= assemble_size
                     self.stdout.write(f"  {'[dry-run] ' if dry_run else ''}orphaned project dir: {project_dir}  ({_fmt(size)})")
                     if not dry_run:
                         shutil.rmtree(project_dir, ignore_errors=True)
