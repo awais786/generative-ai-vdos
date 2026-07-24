@@ -127,10 +127,14 @@ name/email without calling Cognito on every request.
 | `title`        | char, blank                 | Filled from the plan once generated. |
 | `status`       | char (enum, see below)      | |
 | `shot_plan`    | JSON, null                  | The full `ShotPlan` dict; editable during REVIEW. |
-| `image_backend`| char                        | Snapshot of the chosen backend (default from `.env`). |
-| `animate`      | bool, default False         | Opt-in; capped by `MAX_ANIMATED_SCENES`. |
-| `narrator_voice`| char, blank                | edge-tts voice; default from `.env`. |
-| `music`        | char, blank                 | Optional music file/mood. |
+| `style`        | char (StylePreset enum)     | Visual style preset applied to image prompts. |
+| `animate`      | bool, default False         | Opt-in animation; capped by `MAX_ANIMATED_SCENES`. |
+| `narrator_voice`| char (NarratorVoice enum)  | edge-tts voice; default from `.env`. |
+| `music`        | char (MusicMood enum), blank| Optional background music mood. |
+| `plan_model`   | FK → LLMModel, null        | LLM used for the plan stage. |
+| `image_model`  | FK → LLMModel, null        | Image backend used for generation. |
+| `video_model`  | FK → LLMModel, null        | Video backend used for animation. |
+| `final_video_path` | FileField, blank       | Stored final.mp4 via the configured storage backend. |
 | `error`        | text, blank                 | Last failure message if `status=FAILED`. |
 | `stale`        | bool, default False         | An image/voiceover changed since the last assemble — `final.mp4` is out of date until `reassemble/`. |
 | `created_at` / `updated_at` | datetime       | |
@@ -138,15 +142,25 @@ name/email without calling Cognito on every request.
 ### Scene
 **Generation state only.** The plan content (narration, image_prompt, characters,
 negatives) lives in `Project.shot_plan` — the single editable source of truth. A
-Scene row exists per scene purely to track its image artifact, keyed by `index` into
+Scene row exists per scene purely to track its media artifact, keyed by `index` into
 the plan. This avoids a dual source of truth between the JSON and the rows.
 | Field | Type | Notes |
 |-------|------|-------|
 | `project` | FK → Project | |
 | `index` | int | Index into `shot_plan["scenes"]`; the scene's order. |
-| `image_path` | char, blank | Relative to `output/<owner>/<id>/` (e.g. `images/scene_03.png`). |
-| `image_status` | char (enum: PENDING/RUNNING/DONE/FAILED) | |
-| `image_provider` | char, blank | Backend that actually produced it (the fallback chain may differ from the request). |
+| `media_path` | FileField, blank | Image (PNG) or video (MP4) stored via configured storage backend. |
+| `audio_path` | FileField, blank | Voiceover MP3. |
+| `words_path` | FileField, blank | Word-boundary timestamps JSON for caption sync. |
+| `media_status` | char (enum: PENDING/RUNNING/DONE/FAILED) | Tracks image/video generation. |
+| `voice_status` | char (enum: PENDING/RUNNING/DONE/FAILED) | Tracks TTS generation. |
+| `media_provider` | char, blank | Backend that produced the image/video (fallback chain may differ from request). |
+| `preview_url` | char, blank | Ephemeral presigned URL cached for the frontend. |
+| `animate` | bool, default False | Whether this scene should be animated to video. |
+| `compose` | JSON, null | Remotion composition spec for text-card scenes. |
+| `negative_prompt` | text, blank | Per-scene negative prompt merged with global/character negatives. |
+| `on_screen_text` | char, blank | Text overlaid on the scene. |
+| `voice` | char, blank | Per-scene voice override. |
+| `media_prompt` | text, blank | Expanded image prompt after character substitution. |
 
 > Rows are (re)created from `shot_plan` on **approve**, once the plan is final. Editing
 > the plan during REVIEW touches only the JSON; no Scene rows exist yet (D1, §11).
@@ -160,8 +174,16 @@ the plan. This avoids a dual source of truth between the JSON and the rows.
 | `message` | text | Human-readable progress line. |
 | `created_at` | datetime | |
 
-**Project status enum:** `DRAFT → PLANNING → REVIEW → GENERATING → DONE`, with
-`FAILED` reachable from `PLANNING` or `GENERATING`.
+**Project status enum:**
+```
+DRAFT → PLANNING → REVIEW → GENERATING ──(scenes exist)──→ IMAGE_REVIEW → VIDEO_GENERATING → DONE
+                                       ↘ (no scenes)                                        ↗ FAILED
+                                         DONE ←─────────────────────────────────────────────
+```
+- `GENERATING`: images are being produced
+- `IMAGE_REVIEW`: user gate — voice + assembly held until `POST /approve-images/`
+- `VIDEO_GENERATING`: video animation + voiceover + assembly running
+- `FAILED` reachable from `PLANNING`, `GENERATING`, `IMAGE_REVIEW`, or `VIDEO_GENERATING`
 
 ### ERD
 
@@ -180,12 +202,16 @@ the plan. This avoids a dual source of truth between the JSON and the rows.
 │  owner         fk →profile │  ← every query filtered by signed-in user
 │  prompt        text        │
 │  title         char        │
-│  status        enum        │──── DRAFT→PLANNING→REVIEW→GENERATING→DONE  (·→FAILED)
+│  status        enum        │──── DRAFT→PLANNING→REVIEW→GENERATING→IMAGE_REVIEW→DONE (·→FAILED)
 │  shot_plan     json  (null)│         ← single source of truth for plan content
-│  image_backend char        │
+│  style         char        │
 │  animate       bool        │
 │  narrator_voice char       │
 │  music         char        │
+│  plan_model    fk →LLMModel│
+│  image_model   fk →LLMModel│
+│  video_model   fk →LLMModel│
+│  final_video_path FileField│
 │  error         text        │
 │  stale         bool        │         ← final.mp4 out of date vs current assets
 │  created_at    datetime    │
@@ -198,13 +224,18 @@ the plan. This avoids a dual source of truth between the JSON and the rows.
 │ Scene           │ │ JobLog             │
 │  project  fk    │ │  project  fk       │
 │  index    int   │ │  stage    char     │
-│  image_path     │ │  level    char     │
-│  image_status   │ │  message  text     │
-│  image_provider │ │  created_at        │
-└─────────────────┘ └────────────────────┘
-  image state only,    append-only progress
-  index → shot_plan      (also replayed on
-  ["scenes"][index]       SSE reconnect)
+│  media_path     │ │  level    char     │
+│  audio_path     │ │  message  text     │
+│  words_path     │ │  created_at        │
+│  media_status   │ └────────────────────┘
+│  voice_status   │   append-only progress
+│  media_provider │   (poll via /logs/)
+│  preview_url    │
+│  animate        │
+└─────────────────┘
+  media state only,
+  index → shot_plan
+  ["scenes"][index]
 ```
 
 State transitions (who triggers them):
@@ -216,9 +247,14 @@ State transitions (who triggers them):
 | `PLANNING` | `run_plan_stage` raises | `FAILED` |
 | `REVIEW` | `PATCH` (edit plan) | `REVIEW` (no transition) |
 | `REVIEW` | `POST /approve/` | `GENERATING` |
-| `GENERATING` | assemble chord completes | `DONE` |
+| `GENERATING` | image chord completes (scenes exist) | `IMAGE_REVIEW` |
+| `GENERATING` | assemble completes (no scenes) | `DONE` |
 | `GENERATING` | any stage raises | `FAILED` |
-| `FAILED` | `POST /approve/` (retry) | `GENERATING` |
+| `IMAGE_REVIEW` | `POST /approve-images/` | `GENERATING` → `VIDEO_GENERATING` → `DONE` |
+| `IMAGE_REVIEW` | any stage raises | `FAILED` |
+| `VIDEO_GENERATING` | video + assemble completes | `DONE` |
+| `VIDEO_GENERATING` | any stage raises | `FAILED` |
+| `FAILED` | `POST /approve/` or `POST /retry/` | `GENERATING` |
 
 ---
 
@@ -268,14 +304,19 @@ only on the caller's own projects. Base path `/api/`.
 | `PATCH`| `/api/projects/{id}/` | Manually edit `shot_plan` (allowed only while `REVIEW`). |
 | `POST` | `/api/projects/{id}/refine/` | Revise the plan via a natural-language instruction (LLM re-run); `REVIEW` only. |
 | `DELETE`| `/api/projects/{id}/` | Delete row + `output/<owner>/<id>/` folder. |
-| `POST` | `/api/projects/{id}/approve/` | Approve the plan; enqueues the assets pipeline → `GENERATING`. |
+| `POST` | `/api/projects/{id}/approve/` | Approve the plan → `GENERATING`; also retries a `FAILED` project. |
+| `POST` | `/api/projects/{id}/retry/` | Retry a `FAILED` project from the first incomplete stage. |
+| `POST` | `/api/projects/{id}/approve-images/` | Approve generated images → proceed to voice + assembly (`IMAGE_REVIEW` gate). |
 | `POST` | `/api/projects/{id}/scenes/{index}/regenerate/` | Re-run one scene's image. |
 | `POST` | `/api/projects/{id}/regenerate-images/` | Re-run **all** scene images. |
 | `POST` | `/api/projects/{id}/scenes/{index}/revoice/` | Edit one scene's narration/voice and re-run its TTS. |
 | `POST` | `/api/projects/{id}/regenerate-voiceovers/` | Re-run **all** scene voiceovers. |
 | `POST` | `/api/projects/{id}/reassemble/` | Re-stitch `final.mp4` from current assets (clears `stale`). |
-| `GET`  | `/api/projects/{id}/events/` | **SSE** stream of progress events. |
-| `GET`  | `/api/projects/{id}/download/` | Serve `output/<owner>/<id>/final.mp4`. |
+| `GET`  | `/api/projects/{id}/logs/?after={pk}` | Poll pipeline progress events (replaces SSE). |
+| `GET`  | `/api/projects/{id}/download/` | Serve `final.mp4` via storage backend. |
+| `GET`  | `/api/projects/{id}/scenes/{index}/media-urls/` | Signed URL for scene image/video. |
+| `GET`  | `/api/projects/{id}/scenes/{index}/audio-urls/` | Signed URL for scene audio. |
+| `GET\|POST\|DELETE` | `/api/models/` | User-scoped LLM model registry (list / create / delete; no update). |
 
 The review gate (`approve`) is the web equivalent of the CLI's plan→images review
 gate. Generation never starts until the operator approves, matching the

@@ -71,8 +71,7 @@ prod:
 test:
 	uv sync --all-extras
 	$(MANAGE) test apps
-	$(PY) -m pytest tests/test_pipeline_isolation.py
-	$(PY) -m tests.test_expand
+	$(PY) -m pytest tests/
 
 ffmpeg:
 ifeq ($(UNAME),Darwin)

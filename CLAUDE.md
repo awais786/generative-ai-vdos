@@ -23,10 +23,13 @@ All stage commands default to the most recently touched `output/*/` folder
 `python -m pipeline.run "topic" --approve --animate` is the one-shot path with
 resumable `state.json`.
 
-No real test suite — just `tests/test_expand.py` (plain asserts for the
-character-substitution logic, run `python -m tests.test_expand`). Verify other
-changes by running stages against a copy of `examples/the-sharing-berry/` with
-`--backend placeholder` (free, no keys needed).
+Pipeline tests live in `tests/` (7 modules — expand, styles, animate flag,
+image provider selection, video batch, voiceover helpers, pipeline isolation);
+run with `python -m pytest tests/` or `python -m tests.test_expand` for the
+character-substitution module alone. Backend tests (22 modules covering the
+state machine, storage, signed URLs, API isolation, and every Celery stage)
+run with `python manage.py test apps`. Verify pipeline changes against
+`examples/the-sharing-berry/` with `--backend placeholder` (free, no keys needed).
 
 ## Money rules
 
@@ -117,26 +120,28 @@ Settings are split by environment (`backend/config/settings/`):
 - `base.py` — shared config
 - `development.py` — DEBUG=True, COGNITO validation, `CORS_ALLOWED_ORIGINS=localhost:3000`
 - `production.py` — secure cookies, HSTS, HTTPS redirect
+- `deployment.py` — production overrides loaded from env vars (DATABASE_URL, S3, etc.)
 - `test.py` — dummy COGNITO values so tests run without real credentials
 
-`manage.py` auto-selects `test` settings when running `python manage.py test`, `production` in wsgi/asgi.
+`manage.py` auto-selects `test` settings when running `python manage.py test`, `development` otherwise. Production requires `DJANGO_SETTINGS_MODULE=config.settings.production` set explicitly (wsgi/asgi do this).
 
 ### Backend layout
 
 ```
 backend/
-  config/settings/       # split settings (base / development / production / test)
+  config/settings/       # split settings (base / development / production / deployment / test)
   apps/
     accounts/            # Cognito OAuth: login → callback → session; UserProfile model
       cognito.py         # build_authorize_url, exchange_code, decode_id_token
       services.py        # CognitoService.get_or_create_profile(claims)
       serializers.py     # UserProfileSerializer
-    projects/            # Project / Scene / JobLog models + REST API
-      services.py        # ProjectService.create (transactional, logs first entry)
-      serializers.py     # ProjectSerializer, SceneSerializer, JobLogSerializer
-      views.py           # ProjectViewSet (scoped by session cognito_sub), SceneViewSet
+    projects/            # Project / Scene / JobLog / LLMModel models + REST API
+      services.py        # ProjectService.create, budget enforcement, _eager_thread, dispatch helpers
+      serializers.py     # ProjectSerializer, SceneSerializer, JobLogSerializer, LLMModelSerializer
+      views.py           # ProjectViewSet, SceneViewSet, LLMModelViewSet (all scoped by session cognito_sub)
     health/              # GET /api/health/
-    core/                # TimestampMixin (abstract base for all models)
+    core/                # TimestampMixin (abstract base for all models); moderation helpers
+    storage/             # StorageProvider facade (upload/url over FileSystem/S3 backends)
 ```
 
 ### Auth flow
