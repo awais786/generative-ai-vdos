@@ -124,7 +124,20 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_PARSER_CLASSES": ["rest_framework.parsers.JSONParser"],
+    "EXCEPTION_HANDLER": "apps.core.exceptions.exception_handler",
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "user": "1000/day",
+        "throttle_plan": "20/hour",
+        "throttle_images": "20/hour",
+        "throttle_voice": "60/hour",
+    },
 }
+
+MAX_GENERATIONS_PER_DAY = int(os.environ.get("MAX_GENERATIONS_PER_DAY", "20"))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

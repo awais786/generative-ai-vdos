@@ -9,7 +9,7 @@ import DoneView from './done-view'
 import FailedView from './failed-view'
 import ImageReviewView from './image-review-view'
 
-// bundle-dynamic-imports: defer EventSource-heavy component until needed
+// ssr: false — GeneratingView uses browser-only APIs (setTimeout, visibilityState)
 const GeneratingView = dynamic(() => import('./generating-view'), { ssr: false })
 
 interface Props {

@@ -79,8 +79,12 @@ class InvalidTransitionsTest(TestCase):
         with self.assertRaises(ValueError):
             p.transition_status(to_status)
 
-    def test_generating_to_done_is_now_invalid(self):
-        self._assert_raises(Status.GENERATING, Status.DONE)
+    def test_generating_to_done_is_valid_for_retry_path(self):
+        # GENERATING → DONE is intentionally allowed: the retry stage
+        # bypasses IMAGE_REVIEW when images are already approved.
+        p = make_project_in(Status.GENERATING)
+        p.transition_status(Status.DONE)
+        self.assertEqual(p.status, Status.DONE)
 
     def test_image_review_to_done_is_invalid(self):
         self._assert_raises(Status.IMAGE_REVIEW, Status.DONE)

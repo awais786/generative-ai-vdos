@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Project } from '@/lib/project-types'
+import { getActionErrorMessage } from '@/lib/api-errors'
 import { Button } from '@/components/ui/button'
 import StatusPill from './status-pill'
 
@@ -14,16 +15,21 @@ interface Props {
 export default function FailedView({ project, onUpdate }: Props) {
   const router = useRouter()
   const [isRetrying, startRetry] = useTransition()
+  const [retryError, setRetryError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [isDeleting, startDelete] = useTransition()
 
   function handleRetry() {
+    setRetryError(null)
     startRetry(async () => {
       const res = await fetch(`/api/projects/${project.id}/retry/`, {
         method: 'POST',
       })
       if (res.ok || res.status === 202) {
         onUpdate({ status: 'GENERATING', error: '' })
+      } else {
+        const body = await res.json().catch(() => ({}))
+        setRetryError(getActionErrorMessage(res, body, 'Retry failed. Please try again.'))
       }
     })
   }
@@ -86,6 +92,9 @@ export default function FailedView({ project, onUpdate }: Props) {
         >
           {isRetrying ? 'Retrying…' : 'Retry generation'}
         </Button>
+        {retryError && (
+          <p className="text-xs text-[#f0a35e]">{retryError}</p>
+        )}
       </div>
     </div>
   )

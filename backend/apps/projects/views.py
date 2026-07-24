@@ -1,15 +1,11 @@
-import json
-
 from celery import chain, chord, group
 from django.db import IntegrityError, models, transaction
 from django.http import Http404
-from django.http import StreamingHttpResponse
 from django.shortcuts import redirect
 from rest_framework import mixins, viewsets, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
 
 from apps.accounts.models import UserAPIKey
@@ -19,7 +15,7 @@ from .models import Project, Scene, JobLog
 from .serializers import (ProjectSerializer, ProjectCreateSerializer,
                           SceneSerializer, SceneUpdateSerializer, JobLogSerializer,
                           _absolute_media_url)
-from .services import ProjectService, _get_redis, _eager_thread
+from .services import ProjectService, _eager_thread, enforce_daily_budget
 from .tasks import (
     mark_pipeline_failed,
     run_assemble_stage,
@@ -30,9 +26,11 @@ from .tasks import (
     transition_to_image_review,
 )
 from .choices import MediaStatus, Status, VoiceStatus
+from .constants import PROJECT_THROTTLE_SCOPES, SCENE_THROTTLE_SCOPES
 from apps.storage import storage_provider
 from apps.projects.models import LLMModel
 from apps.projects.serializers import LLMModelSerializer
+
 
 
 def _reset_failed_animated_scenes_with_stills(project):
@@ -56,14 +54,6 @@ def _resume_failed_project(project) -> str:
     return str(project.id)
 
 
-class SSERenderer(BaseRenderer):
-    media_type = 'text/event-stream'
-    format = 'txt'
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        return data
-
-
 def _require_status(project, expected, detail):
     """Return a 409 Response if the project isn't in the expected state, else None.
     Usage: ``if resp := _require_status(...): return resp``."""
@@ -75,6 +65,12 @@ def _require_status(project, expected, detail):
 class ProjectViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_throttles(self):
+        scope = PROJECT_THROTTLE_SCOPES.get(self.action)
+        if scope:
+            self.throttle_scope = scope
+        return super().get_throttles()
 
     def get_queryset(self):
         return (
@@ -120,6 +116,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             project = self._get_locked_project()
             if project.status == Status.FAILED:
+                enforce_daily_budget(project.owner)
                 project_id = _resume_failed_project(project)
                 transaction.on_commit(lambda: _dispatch_retry_stage(project_id))
                 return Response(
@@ -129,6 +126,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             if resp := _require_status(project, Status.REVIEW,
                                        f"Cannot approve from {project.status} state."):
                 return resp
+            enforce_daily_budget(project.owner)
             project.transition_status(Status.GENERATING)
         transaction.on_commit(lambda: _dispatch_generate_stage(str(project.id)))
         return Response(self.get_serializer(project).data, status=status.HTTP_202_ACCEPTED)
@@ -140,6 +138,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             if resp := _require_status(project, Status.FAILED,
                                        f"Cannot retry from {project.status} state."):
                 return resp
+            enforce_daily_budget(project.owner)
             project_id = _resume_failed_project(project)
         transaction.on_commit(lambda: _dispatch_retry_stage(project_id))
         return Response(self.get_serializer(project).data, status=status.HTTP_202_ACCEPTED)
@@ -159,80 +158,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
             if resp := _require_status(project, Status.REVIEW,
                                        f"Cannot refine from {project.status} state."):
                 return resp
+            enforce_daily_budget(project.owner)
             project.transition_status(Status.PLANNING)
         project_id = str(project.id)
         transaction.on_commit(lambda: _dispatch_refine_stage(project_id, instruction))
         return Response(self.get_serializer(project).data, status=status.HTTP_202_ACCEPTED)
-
-    @action(detail=True, methods=["get"], renderer_classes=[SSERenderer])
-    def events(self, request, pk=None):
-        project = self.get_object()
-
-        def event_stream():
-            # Replay all existing logs so late-joining clients catch up.
-            for log in JobLog.objects.filter(project=project).order_by("created_at"):
-                payload = json.dumps({
-                    "type": "log",
-                    "stage": log.stage,
-                    "level": log.level,
-                    "message": log.message,
-                    "ts": log.created_at.isoformat(),
-                    "project_status": project.status,
-                    "scene_index": None,
-                    "media_status": None,
-                })
-                yield f"data: {payload}\n\n"
-
-            # Bail early if already terminal.
-            project.refresh_from_db(fields=["status"])
-            if project.status in (Status.DONE, Status.FAILED):
-                return
-
-            # Subscribe to Redis for live events.
-            client = _get_redis()
-            if client is None:
-                # No Redis — client falls back to HTTP log polling (/logs/).
-                yield ": heartbeat\n\n"
-                return
-
-            pubsub = client.pubsub()
-            channel = f"project:{project.id}:events"
-            pubsub.subscribe(channel)
-            try:
-                while True:
-                    msg = pubsub.get_message(
-                        ignore_subscribe_messages=True, timeout=25
-                    )
-                    if msg:
-                        raw = (
-                            msg["data"].decode("utf-8")
-                            if isinstance(msg["data"], bytes)
-                            else msg["data"]
-                        )
-                        yield f"data: {raw}\n\n"
-                        try:
-                            if json.loads(raw).get("project_status") in (
-                                "DONE", "FAILED"
-                            ):
-                                break
-                        except (ValueError, AttributeError):
-                            pass
-                    else:
-                        yield ": heartbeat\n\n"
-            finally:
-                try:
-                    pubsub.unsubscribe(channel)
-                    pubsub.close()
-                except Exception:
-                    pass
-
-        response = StreamingHttpResponse(
-            streaming_content=event_stream(),
-            content_type="text/event-stream",
-        )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
 
     @action(detail=True, methods=["post"], url_path="regenerate-images")
     def regenerate_images(self, request, pk=None):
@@ -243,6 +173,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     {"detail": "Cannot bulk-regenerate images during review; regenerate scenes individually."},
                     status=status.HTTP_409_CONFLICT,
                 )
+            enforce_daily_budget(project.owner)
             scene_indices = list(
                 Scene.objects.filter(project=project)
                 .values_list("index", flat=True)
@@ -287,6 +218,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     {"detail": "All scenes must be DONE before approving."},
                     status=status.HTTP_409_CONFLICT,
                 )
+            enforce_daily_budget(project.owner)
             project.transition_status(Status.VIDEO_GENERATING)
         project_id = str(project.id)
         transaction.on_commit(lambda: _dispatch_voice_assembly(project_id))
@@ -438,6 +370,12 @@ class SceneViewSet(viewsets.GenericViewSet):
     lookup_field = "index"
     http_method_names = ["get", "patch", "post", "head", "options"]
 
+    def get_throttles(self):
+        scope = SCENE_THROTTLE_SCOPES.get(self.action)
+        if scope:
+            self.throttle_scope = scope
+        return super().get_throttles()
+
     def get_queryset(self):
         return Scene.objects.filter(
             project_id=self.kwargs["project_pk"],
@@ -499,6 +437,7 @@ class SceneViewSet(viewsets.GenericViewSet):
                     {"detail": "this scene is a composition card, not an image — nothing to regenerate"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            enforce_daily_budget(scene.project.owner)
             prompt = request.data.get("prompt", "").strip()
             if prompt:
                 if resp := blocked_response(prompt, context="regenerate-image"):

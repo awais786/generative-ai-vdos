@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Project, ShotPlan, Character, Scene } from '@/lib/project-types'
+import { getActionErrorMessage } from '@/lib/api-errors'
 import { Button } from '@/components/ui/button'
 import StatusPill from './status-pill'
 
@@ -91,8 +92,8 @@ export default function PlanEditor({ project, onUpdate }: Props) {
         setRefineText('')
         onUpdate({ status: 'PLANNING' })
       } else {
-        const data: { detail?: string } = await res.json().catch(() => ({}))
-        setRefineError(data.detail ?? 'Refine failed. Please try again.')
+        const data = await res.json().catch(() => ({}))
+        setRefineError(getActionErrorMessage(res, data, 'Refine failed. Please try again.'))
       }
     })
   }
@@ -105,8 +106,8 @@ export default function PlanEditor({ project, onUpdate }: Props) {
       if (res.ok || res.status === 202) {
         onUpdate({status: 'GENERATING'})
       } else {
-        const data: { detail?: string } = await res.json().catch(() => ({}))
-        setPatchError(data.detail ?? 'Approve failed. Please try again.')
+        const data = await res.json().catch(() => ({}))
+        setPatchError(getActionErrorMessage(res, data, 'Approve failed. Please try again.'))
       }
     })
   }
