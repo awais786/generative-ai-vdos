@@ -1,4 +1,5 @@
 import logging
+import shutil
 
 from celery import shared_task
 from django.db import transaction
@@ -334,6 +335,7 @@ def run_assemble_stage(self, project_id):
         return {"project_id": str(project_id)}
     publish_event(project_id, Stage.ASSEMBLE, Level.INFO, "Assembling final video")
 
+    work_dir = None
     try:
         work_dir, plan = materialize_work_dir(project)
         music = pick_music(music_root(), plan.music_mood)
@@ -351,6 +353,9 @@ def run_assemble_stage(self, project_id):
     except Exception as exc:
         fail_project(project, project_id, Stage.ASSEMBLE, exc)
         raise
+    finally:
+        if work_dir is not None:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
     return {"project_id": project_id}
 

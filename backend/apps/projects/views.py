@@ -1,3 +1,5 @@
+import shutil
+
 from celery import chain, chord, group
 from django.db import IntegrityError, models, transaction
 from django.http import Http404
@@ -16,6 +18,7 @@ from .serializers import (ProjectSerializer, ProjectCreateSerializer,
                           SceneSerializer, SceneUpdateSerializer, JobLogSerializer,
                           _absolute_media_url)
 from .services import ProjectService, _eager_thread, enforce_daily_budget
+from .utils import get_work_dir
 from .tasks import (
     mark_pipeline_failed,
     run_assemble_stage,
@@ -243,6 +246,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if not video_url:
             raise Http404("final.mp4 not found")
         return redirect(video_url)
+
+    def perform_destroy(self, instance):
+        work_dir = get_work_dir(instance)
+        super().perform_destroy(instance)
+        shutil.rmtree(work_dir, ignore_errors=True)
 
     @action(detail=True, methods=["get"])
     def logs(self, request, pk=None):
