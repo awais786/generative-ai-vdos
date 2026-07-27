@@ -6,7 +6,7 @@ class CognitoService:
     def get_or_create_profile(id_token_claims: dict) -> tuple[UserProfile, bool]:
         sub = id_token_claims.get("sub", "")
         email = id_token_claims.get("email", "")
-        name = id_token_claims.get("name", "") or id_token_claims.get("cognito:username", "")
+        name = id_token_claims.get("name", "")
 
         profile, created = UserProfile.objects.get_or_create(
             cognito_sub=sub,

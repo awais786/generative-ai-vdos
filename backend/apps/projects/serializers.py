@@ -97,8 +97,8 @@ class SceneSerializer(serializers.ModelSerializer):
         field_file = getattr(obj, field)
         if not field_file:
             return ""
-        ts = int(obj.updated_at.timestamp()) if obj.updated_at else 0
-        cache_key = f"{prefix}:{obj.pk}:{ts}"
+        # Key on the file name, not updated_at — voice/status changes don't bust the image URL cache
+        cache_key = f"{prefix}:{obj.pk}:{field_file.name}"
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
@@ -107,7 +107,8 @@ class SceneSerializer(serializers.ModelSerializer):
             self.context.get("request"),
         )
         # 50 min TTL — safely within S3's default 1-hour presigned URL expiry
-        cache.set(cache_key, url, timeout=3000)
+        if url:
+            cache.set(cache_key, url, timeout=3000)
         return url
 
     def get_media_path(self, obj) -> str:

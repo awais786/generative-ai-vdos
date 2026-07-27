@@ -17,7 +17,7 @@ export const API = {
   PROJECTS: {
     LIST: '/api/projects/',
     DETAIL: (id: string) => `/api/projects/${id}/`,
-    LOGS: (id: string, after: number) => `/api/projects/${id}/logs/?after=${after}`,
+    LOGS: (id: string, after: number) => `/api/projects/${id}/logs?after=${after}`,
     APPROVE_IMAGES: (id: string) => `/api/projects/${id}/approve-images/`,
     RETRY: (id: string) => `/api/projects/${id}/retry/`,
     REFINE: (id: string) => `/api/projects/${id}/refine/`,
