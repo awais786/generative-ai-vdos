@@ -25,7 +25,7 @@ export default function ProjectPage({ initialProject }: Props) {
 
   const { status } = project
 
-  if (status === 'DRAFT' || status === 'PLANNING') {
+  if (status === 'DRAFT' || status === 'PLANNING' || status === 'REFINING') {
     return <PlanningView project={project} onUpdate={updateProject} />
   }
   if (status === 'REVIEW') {

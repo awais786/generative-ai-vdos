@@ -159,7 +159,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                                        f"Cannot refine from {project.status} state."):
                 return resp
             enforce_daily_budget(project.owner)
-            project.transition_status(Status.PLANNING)
+            project.transition_status(Status.REFINING)
         project_id = str(project.id)
         transaction.on_commit(lambda: _dispatch_refine_stage(project_id, instruction))
         return Response(self.get_serializer(project).data, status=status.HTTP_202_ACCEPTED)

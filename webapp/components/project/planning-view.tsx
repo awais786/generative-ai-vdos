@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { Project } from '@/lib/project-types'
+import { Project, STATUS_CONFIG } from '@/lib/project-types'
 import StatusPill from './status-pill'
 
 interface Props {
@@ -19,7 +19,7 @@ export default function PlanningView({ project, onUpdate }: Props) {
         const res = await fetch(`/api/projects/${project.id}/`)
         if (!res.ok) return
         const updated: Project = await res.json()
-        if (updated.status !== 'DRAFT' && updated.status !== 'PLANNING') {
+        if (updated.status !== 'DRAFT' && updated.status !== 'PLANNING' && updated.status !== 'REFINING') {
           clearInterval(interval)
           onUpdateRef.current(updated)
         }
@@ -33,7 +33,7 @@ export default function PlanningView({ project, onUpdate }: Props) {
 
   return (
     <div className="flex flex-col items-center justify-center py-24 gap-8 max-w-sm mx-auto text-center">
-      <StatusPill status={project.status === 'DRAFT' ? 'DRAFT' : 'PLANNING'} />
+      <StatusPill status={project.status === 'DRAFT' ? 'DRAFT' : project.status === 'REFINING' ? 'REFINING' : 'PLANNING'} />
 
       {project.prompt ? (
         <p className="text-sm text-[#9aa3b2] italic leading-relaxed">
@@ -42,8 +42,13 @@ export default function PlanningView({ project, onUpdate }: Props) {
       ) : null}
 
       <div className="flex flex-col items-center gap-3">
-        <div className="w-7 h-7 rounded-full border-2 border-[#6ea8fe] border-t-transparent animate-spin" />
-        <p className="text-sm font-medium text-[#e7e9ee]">Generating your shot plan</p>
+        <div
+          className="w-7 h-7 rounded-full border-2 border-t-transparent animate-spin"
+          style={{ borderColor: STATUS_CONFIG[project.status].color, borderTopColor: 'transparent' }}
+        />
+        <p className="text-sm font-medium text-[#e7e9ee]">
+          {project.status === 'REFINING' ? 'Refining your shot plan' : 'Generating your shot plan'}
+        </p>
         <p className="text-xs text-[#4a5568]">Usually under a minute.</p>
       </div>
     </div>
