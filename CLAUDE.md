@@ -28,7 +28,7 @@ image provider selection, video batch, voiceover helpers, pipeline isolation);
 run with `python -m pytest tests/` or `python -m tests.test_expand` for the
 character-substitution module alone. Backend tests (22 modules covering the
 state machine, storage, signed URLs, API isolation, and every Celery stage)
-run with `python manage.py test apps`. Verify pipeline changes against
+run with `(cd backend && python manage.py test apps)`. Verify pipeline changes against
 `examples/the-sharing-berry/` with `--backend placeholder` (free, no keys needed).
 
 ## Money rules
@@ -194,7 +194,7 @@ skills, if they're available.**
 - **`decode_id_token` is unverified** — we trust the token because we fetched it server-side directly from Cognito's token endpoint over HTTPS. Full JWKS verification would be needed if clients ever send Bearer tokens directly.
 - **`CognitoService.get_or_create_profile` also syncs** — if a user updates their email/name in Cognito, the next login updates the local `UserProfile`.
 - **Tests use `config.settings.test`** — dummy COGNITO values are set there. Per-test Cognito overrides use `with self.settings(COGNITO=FAKE_COGNITO)`.
-- **Tests are co-located** — `apps/accounts/tests/`, `apps/projects/tests/`, `apps/health/tests/`. Run all with `python manage.py test apps`.
+- **Tests are co-located** — `apps/accounts/tests/`, `apps/projects/tests/`, `apps/health/tests/`. Run all with `(cd backend && python manage.py test apps)`.
 - **`FRONTEND_URL` env var** — set this to your frontend origin (default `http://localhost:3000`); the backend callback appends `/home`.
 - **Logout accepts GET and POST** — GET so a browser link works directly; POST for programmatic calls.
 - **`sessionid` cookie is opaque** — just a session key; actual user data (tokens, sub) lives in Django's session store server-side. Next.js server-side fetch to `/api/auth/me` is the only way to get user data.

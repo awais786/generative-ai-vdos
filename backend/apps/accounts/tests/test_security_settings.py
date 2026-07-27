@@ -7,13 +7,14 @@ class SessionCookieSecurityTest(TestCase):
     solely on SESSION_COOKIE_SAMESITE to block cross-site writes. These tests
     ensure that assumption is never silently dropped by a settings override."""
 
-    def test_samesite_is_lax_or_strict(self):
+    def test_samesite_is_lax(self):
         value = settings.SESSION_COOKIE_SAMESITE
-        self.assertIn(
+        self.assertEqual(
             value,
-            ("Lax", "Strict"),
-            f"SESSION_COOKIE_SAMESITE={value!r} allows cross-site cookie "
-            "submission — add explicit CSRF token enforcement before weakening this.",
+            "Lax",
+            f"SESSION_COOKIE_SAMESITE={value!r} — only 'Lax' is safe here: "
+            "'Strict' breaks the Cognito OAuth callback redirect, and 'None' "
+            "allows cross-site cookie submission without CSRF token enforcement.",
         )
 
     def test_session_cookie_httponly(self):

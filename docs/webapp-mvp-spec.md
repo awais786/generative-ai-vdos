@@ -144,6 +144,7 @@ name/email without calling Cognito on every request.
 negatives) lives in `Project.shot_plan` — the single editable source of truth. A
 Scene row exists per scene purely to track its media artifact, keyed by `index` into
 the plan. This avoids a dual source of truth between the JSON and the rows.
+
 | Field | Type | Notes |
 |-------|------|-------|
 | `project` | FK → Project | |
@@ -202,7 +203,7 @@ DRAFT → PLANNING → REVIEW → GENERATING ──(scenes exist)──→ IMAGE
 │  owner         fk →profile │  ← every query filtered by signed-in user
 │  prompt        text        │
 │  title         char        │
-│  status        enum        │──── DRAFT→PLANNING→REVIEW→GENERATING→IMAGE_REVIEW→DONE (·→FAILED)
+│  status        enum        │──── DRAFT→PLANNING→REVIEW→GENERATING→IMAGE_REVIEW→VIDEO_GENERATING→DONE (·→FAILED)
 │  shot_plan     json  (null)│         ← single source of truth for plan content
 │  style         char        │
 │  animate       bool        │
@@ -250,7 +251,7 @@ State transitions (who triggers them):
 | `GENERATING` | image chord completes (scenes exist) | `IMAGE_REVIEW` |
 | `GENERATING` | assemble completes (no scenes) | `DONE` |
 | `GENERATING` | any stage raises | `FAILED` |
-| `IMAGE_REVIEW` | `POST /approve-images/` | `GENERATING` → `VIDEO_GENERATING` → `DONE` |
+| `IMAGE_REVIEW` | `POST /approve-images/` | `VIDEO_GENERATING` |
 | `IMAGE_REVIEW` | any stage raises | `FAILED` |
 | `VIDEO_GENERATING` | video + assemble completes | `DONE` |
 | `VIDEO_GENERATING` | any stage raises | `FAILED` |
@@ -298,7 +299,7 @@ only on the caller's own projects. Base path `/api/`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/projects/` | Create a project from `{prompt, image_backend?, animate?, voice?}`; enqueues the plan task → `PLANNING`. |
+| `POST` | `/api/projects/` | Create a project from `{prompt, image_model?, animate?, narrator_voice?}`; enqueues the plan task → `PLANNING`. |
 | `GET`  | `/api/projects/` | List projects (id, title, status, created_at). |
 | `GET`  | `/api/projects/{id}/` | Detail: project + scenes + recent JobLog. |
 | `PATCH`| `/api/projects/{id}/` | Manually edit `shot_plan` (allowed only while `REVIEW`). |
@@ -330,7 +331,7 @@ rest fall back to the `.env` flags (D3).
 ```jsonc
 // request
 { "prompt": "a lonely lighthouse keeper befriends a storm petrel",
-  "image_backend": "qwen",      // optional override; else IMAGE_BACKEND
+  "image_model": "qwen-vl-max", // optional model_id; else global default
   "animate": false,              // optional; spends credit if true
   "narrator_voice": "en-US-AndrewNeural", // optional
   "music": "calm" }             // optional mood
@@ -342,13 +343,15 @@ rest fall back to the `.env` flags (D3).
 **`GET /api/projects/{id}/`** — detail (poll-free; SSE drives live updates).
 ```jsonc
 { "id": "9f1c…", "status": "REVIEW", "title": "The Keeper and the Petrel",
-  "image_backend": "qwen", "animate": false,
+  "image_model": "qwen-vl-max", "animate": false,
   "shot_plan": { /* full ShotPlan dict — schema.py contract */ },
   "scenes": [
-    { "index": 0, "image_status": "DONE",
-      "image_path": "images/scene_00.png", "image_provider": "qwen-image" },
-    { "index": 1, "image_status": "PENDING",
-      "image_path": "", "image_provider": "" }
+    { "index": 0, "media_status": "done",
+      "media_path": "/media/…/images/scene_00.png", "media_provider": "qwen-image",
+      "voice_status": "done" },
+    { "index": 1, "media_status": "pending",
+      "media_path": "", "media_provider": "",
+      "voice_status": "pending" }
   ],
   "log": [ { "stage": "plan", "level": "info",
              "message": "consistency review passed",
@@ -358,7 +361,7 @@ rest fall back to the `.env` flags (D3).
 Before approve, `scenes` is `[]` (no rows yet — D1); the plan is read from `shot_plan`.
 
 **`PATCH /api/projects/{id}/`** — edit the plan while `REVIEW`. Body is a partial:
-`{ "shot_plan": { … }, "image_backend": "openai", "animate": true }`. Editing in any
+`{ "shot_plan": { … }, "image_model": "dall-e-3", "animate": true }`. Editing in any
 other status → `409 Conflict`. Returns the updated detail object.
 
 **`POST /api/projects/{id}/refine/`** — revise the plan with a natural-language
@@ -381,13 +384,13 @@ Calling it from `REVIEW` or `FAILED` is valid (the latter is retry); any other
 status → `409`.
 
 **`POST /api/projects/{id}/scenes/{index}/regenerate/`** — re-run one image. Optional
-`{ "image_backend": "gpt-image-1" }` to force a backend for this scene only (explicit
-opt-in to the paid backend). `202`; the scene's `image_status` returns to `RUNNING`
+`{ "image_model": "dall-e-3" }` to force a specific model for this scene only (explicit
+opt-in to a paid model). `202`; the scene's `media_status` returns to `running`
 and progress streams over SSE. Allowed in `REVIEW` and `DONE`.
 
 **`POST /api/projects/{id}/regenerate-images/`** — re-run **all** scene images at once.
-Optional `{ "image_backend": "…" }` applies to every scene. Resets each scene's
-`image_status` to `PENDING` and enqueues the image `group` only — voiceover is
+Optional `{ "image_model": "…" }` applies to every scene. Resets each scene's
+`media_status` to `pending` and enqueues the image `group` only — voiceover is
 untouched. `202`. Allowed in `DONE`/`FAILED`. Regenerating an image changes a source
 asset, so it sets `stale=true`; `final.mp4` is unchanged until **`reassemble/`**.
 
@@ -562,7 +565,7 @@ These were open; now settled (explicit by preference — no defaults left implic
 |---|----------|
 | D1 | **Plan JSON is the single source of truth.** `Scene` rows hold image state only, (re)built from `shot_plan` on approve (§4). |
 | D2 | **Progress uses SSE**, not WebSockets — one-way, simpler, no extra deps. |
-| D3 | **`.env` is the default source of truth for providers/credentials.** The UI overrides per-project: `image_backend`, `animate`, `voice`, `music`, **and (per §14) the LLM + image model chosen from the user's own model registry**. `.env` remains the fallback when no per-user model is selected. |
+| D3 | **`.env` is the default source of truth for providers/credentials.** The UI overrides per-project: `image_model`, `animate`, `narrator_voice`, `music`, **and (per §14) the LLM + image model chosen from the user's own model registry**. `.env` remains the fallback when no per-user model is selected. |
 | D4 | **One Celery worker, default concurrency.** Image tasks fan out via the chord's `group`; if a free-tier backend (Qwen) rate-limits, lower worker concurrency rather than adding backpressure logic. |
 | D5 | **Music: plan-driven mood first.** Reuse `music/` + its CC-BY attribution; a file picker comes later. |
 | D6 | **Users bring their own models + API keys** (per §14), chosen over an admin-defined shared registry. Larger scope (encrypted key storage, per-request routing) — scheduled **Sprint 2+**, not the initial MVP slice. |
