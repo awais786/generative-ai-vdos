@@ -9,11 +9,7 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const hasSession = request.cookies.has(DJANGO_SESSION_COOKIE)
 
-  if (pathname === '/login' && hasSession) {
-    return NextResponse.redirect(publicUrl(request, '/home'))
-  }
-
-  // Public paths pass through
+  // Public paths always pass through — no redirects
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return NextResponse.next()
   }

@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { notFound } from 'next/navigation'
 import { Project } from '@/lib/project-types'
@@ -27,5 +28,13 @@ export default async function ProjectDetailPage({
   const project: Project = await res.json()
 
 
-  return <ProjectPage initialProject={project} />
+  return (
+    <>
+      <Link href="/home" className="flex w-fit items-center gap-1 text-sm text-[#9aa3b2] hover:text-[#e7e9ee] transition-colors mb-6">
+        ← Back
+      </Link>
+
+      <ProjectPage initialProject={project} />
+    </>
+  )
 }
