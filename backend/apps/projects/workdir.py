@@ -1,6 +1,7 @@
 """Materialize a CLI-style work dir from DB + storage for FFmpeg assembly."""
 
 import shutil
+import time
 from pathlib import Path
 
 from django.conf import settings
@@ -46,6 +47,7 @@ def materialize_work_dir(project: Project) -> tuple[Path, ShotPlan]:
     video_dir = work_dir / "video"
     for d in (images_dir, audio_dir, video_dir):
         d.mkdir(parents=True, exist_ok=True)
+    (work_dir / ".active").write_text(str(time.time()))
 
     plan = build_shot_plan(project)
     (work_dir / "shot_plan.json").write_text(plan.model_dump_json(indent=2))
@@ -90,3 +92,18 @@ def materialize_work_dir(project: Project) -> tuple[Path, ShotPlan]:
 
 def music_root() -> Path:
     return Path(settings.BASE_DIR).parent / "music"
+
+
+# task time_limit is 25 min; 5 min grace covers slow teardown
+_ASSEMBLE_STALE_AFTER = 30 * 60
+
+
+def assemble_is_live(assemble_dir: Path) -> bool:
+    """Return True if _assemble/ has a fresh .active sentinel (assembly in flight)."""
+    sentinel = assemble_dir / ".active"
+    if not sentinel.exists():
+        return False
+    try:
+        return time.time() - float(sentinel.read_text()) < _ASSEMBLE_STALE_AFTER
+    except (ValueError, OSError):
+        return False
