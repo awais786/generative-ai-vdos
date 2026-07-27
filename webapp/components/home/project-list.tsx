@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers'
 import Link from 'next/link'
+import { API, ROUTES } from '@/lib/routes'
 
 const DJANGO_ORIGIN = (process.env.DJANGO_ORIGIN ?? 'http://localhost:8000').replace(/\/$/, '')
 
@@ -51,7 +52,7 @@ export default async function ProjectList() {
   let fetchError = false
 
   try {
-    const res = await fetch(`${DJANGO_ORIGIN}/api/projects/`, {
+    const res = await fetch(`${DJANGO_ORIGIN}${API.PROJECTS.LIST}`, {
       headers: { Cookie: `sessionid=${session?.value ?? ''}` },
       cache: 'no-store',
     })
@@ -83,7 +84,7 @@ export default async function ProjectList() {
         return (
           <Link
             key={project.id}
-            href={`/projects/${project.id}`}
+            href={ROUTES.PROJECT(project.id)}
             className="flex items-center gap-3 px-3 py-3 rounded-[10px] border border-[#2a2f3a] bg-[#1e222b] hover:bg-[#252a35] transition-colors"
           >
             <span

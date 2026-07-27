@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import type { LLMModel } from '@/lib/project-types'
+import { API, ROUTES } from '@/lib/routes'
 
 interface ProjectFormProps {
   imageModels: LLMModel[]
@@ -62,7 +63,7 @@ export default function ProjectForm({ imageModels, videoModels }: ProjectFormPro
         body.image_model = imageModel
         body.video_model = videModel
 
-        const res = await fetch('/api/projects/', {
+        const res = await fetch(API.PROJECTS.LIST, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -71,7 +72,7 @@ export default function ProjectForm({ imageModels, videoModels }: ProjectFormPro
         if (res.status === 201) {
           const data = await res.json()
           router.refresh()
-          router.push(`/projects/${data.id}`)
+          router.push(ROUTES.PROJECT(data.id))
           return
         }
 
@@ -186,7 +187,7 @@ export default function ProjectForm({ imageModels, videoModels }: ProjectFormPro
       </div>
 
       <p className="text-[11px] text-[#4a5568]">
-        Generation needs an API key for the selected model&apos;s provider — add one in <Link href="/settings" className="text-[#6ea8fe] hover:underline">Settings</Link>.
+        Generation needs an API key for the selected model&apos;s provider — add one in <Link href={ROUTES.SETTINGS} className="text-[#6ea8fe] hover:underline">Settings</Link>.
       </p>
     </form>
   )

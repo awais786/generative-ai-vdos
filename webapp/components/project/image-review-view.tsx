@@ -6,6 +6,7 @@ import { Project, Scene } from '@/lib/project-types'
 import { getActionErrorMessage } from '@/lib/api-errors'
 import { Button } from '@/components/ui/button'
 import StatusPill from './status-pill'
+import { API, ROUTES } from '@/lib/routes'
 
 interface Props {
   project: Project
@@ -43,14 +44,14 @@ export default function ImageReviewView({ project, onUpdate }: Props) {
 
   function handleDelete() {
     startDelete(async () => {
-      const res = await fetch(`/api/projects/${project.id}/`, { method: 'DELETE' })
-      if (res.status === 204) { router.refresh(); router.push('/home') }
+      const res = await fetch(API.PROJECTS.DETAIL(project.id), { method: 'DELETE' })
+      if (res.status === 204) { router.refresh(); router.push(ROUTES.HOME) }
     })
   }
 
   function handleApprove() {
     startApprove(async () => {
-      const res = await fetch(`/api/projects/${project.id}/approve-images/`, {
+      const res = await fetch(API.PROJECTS.APPROVE_IMAGES(project.id), {
         method: 'POST',
       })
       if (res.ok) {
@@ -167,7 +168,7 @@ const ReviewSceneCard = memo(function ReviewSceneCard({
   function handleRegen() {
     setRegenError(null)
     startRegen(async () => {
-      const res = await fetch(`/api/projects/${projectId}/scenes/${scene.index}/regenerate/`, {
+      const res = await fetch(API.PROJECTS.SCENE_REGENERATE(projectId, scene.index), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: mediaPrompt }),
@@ -181,7 +182,7 @@ const ReviewSceneCard = memo(function ReviewSceneCard({
       if (mediaPollRef.current) clearInterval(mediaPollRef.current)
       mediaPollRef.current = setInterval(async () => {
         try {
-          const r = await fetch(`/api/projects/${projectId}/scenes/${scene.index}/`)
+          const r = await fetch(API.PROJECTS.SCENE(projectId, scene.index))
           if (!r.ok) return
           const updated: Scene = await r.json()
           onStatusChange(scene.index, updated.media_status)

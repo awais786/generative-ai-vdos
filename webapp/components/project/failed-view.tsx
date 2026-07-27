@@ -6,6 +6,7 @@ import { Project } from '@/lib/project-types'
 import { getActionErrorMessage } from '@/lib/api-errors'
 import { Button } from '@/components/ui/button'
 import StatusPill from './status-pill'
+import { API, ROUTES } from '@/lib/routes'
 
 interface Props {
   project: Project
@@ -22,7 +23,7 @@ export default function FailedView({ project, onUpdate }: Props) {
   function handleRetry() {
     setRetryError(null)
     startRetry(async () => {
-      const res = await fetch(`/api/projects/${project.id}/retry/`, {
+      const res = await fetch(API.PROJECTS.RETRY(project.id), {
         method: 'POST',
       })
       if (res.ok || res.status === 202) {
@@ -36,8 +37,8 @@ export default function FailedView({ project, onUpdate }: Props) {
 
   function handleDelete() {
     startDelete(async () => {
-      const res = await fetch(`/api/projects/${project.id}/`, { method: 'DELETE' })
-      if (res.status === 204) { router.refresh(); router.push('/home') }
+      const res = await fetch(API.PROJECTS.DETAIL(project.id), { method: 'DELETE' })
+      if (res.status === 204) { router.refresh(); router.push(ROUTES.HOME) }
     })
   }
 

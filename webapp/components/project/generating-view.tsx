@@ -6,6 +6,7 @@ import { Project, Scene } from '@/lib/project-types'
 import { Button } from '@/components/ui/button'
 import SceneGrid from './scene-grid'
 import StatusPill from './status-pill'
+import { API, ROUTES } from '@/lib/routes'
 
 interface Props {
   project: Project
@@ -40,8 +41,8 @@ export default function GeneratingView({ project, onUpdate }: Props) {
 
   function handleDelete() {
     startDelete(async () => {
-      const res = await fetch(`/api/projects/${project.id}/`, { method: 'DELETE' })
-      if (res.status === 204) { router.refresh(); router.push('/home') }
+      const res = await fetch(API.PROJECTS.DETAIL(project.id), { method: 'DELETE' })
+      if (res.status === 204) { router.refresh(); router.push(ROUTES.HOME) }
     })
   }
 
@@ -68,8 +69,8 @@ export default function GeneratingView({ project, onUpdate }: Props) {
       inFlight = true
       try {
         const [projectRes, logsRes] = await Promise.all([
-          fetch(`/api/projects/${project.id}/`),
-          fetch(`/api/projects/${project.id}/logs/?after=${lastLogId}`),
+          fetch(API.PROJECTS.DETAIL(project.id)),
+          fetch(API.PROJECTS.LOGS(project.id, lastLogId)),
         ])
 
         if (projectRes.ok) {

@@ -3,6 +3,7 @@
 import { useTransition } from 'react'
 import { Button } from '@/components/ui/button'
 import { Project } from '@/lib/project-types'
+import { API } from '@/lib/routes'
 
 interface Props {
   projectId: string
@@ -15,7 +16,7 @@ export default function VideoPlayer({ projectId, stale, onRebuild }: Props) {
 
   function handleRebuild() {
     startRebuild(async () => {
-      const res = await fetch(`/api/projects/${projectId}/reassemble/`, {
+      const res = await fetch(API.PROJECTS.REASSEMBLE(projectId), {
         method: 'POST',
       })
       const updated: Project = await res.json()
@@ -28,13 +29,13 @@ export default function VideoPlayer({ projectId, stale, onRebuild }: Props) {
       <video
         controls
         className="w-full aspect-video bg-black"
-        src={`/api/projects/${projectId}/download/`}
+        src={API.PROJECTS.DOWNLOAD(projectId)}
       >
         Your browser does not support video playback.
       </video>
       <div className="p-4 flex items-center justify-between gap-4 flex-wrap">
         <a
-          href={`/api/projects/${projectId}/download/`}
+          href={API.PROJECTS.DOWNLOAD(projectId)}
           download="final.mp4"
           className="text-sm text-[#6ea8fe] hover:text-[#5a97f0] underline underline-offset-2"
         >

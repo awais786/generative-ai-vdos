@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { Header } from '@/components/header'
 import { getUser } from '@/lib/auth-server'
+import { ROUTES } from '@/lib/routes'
 
 export default async function ProjectsLayout({
   children,
@@ -8,7 +9,7 @@ export default async function ProjectsLayout({
   children: React.ReactNode
 }) {
   const user = await getUser()
-  if (!user) redirect('/login')
+  if (!user) redirect(ROUTES.LOGIN)
 
   return (
     <>

@@ -3,17 +3,18 @@ import type { ApiKey, Provider } from '@/components/settings/api-keys'
 import { SettingsPanels } from '@/components/settings/settings-panels'
 import { serverFetch } from '@/lib/server-fetch'
 import type { LLMModel } from '@/lib/project-types'
+import { API, ROUTES } from '@/lib/routes'
 
 export default async function SettingsPage() {
   const [initialKeys, providers, initialModels] = await Promise.all([
-    serverFetch<ApiKey[]>('/api/auth/keys/'),
-    serverFetch<Provider[]>('/api/core/providers/'),
-    serverFetch<LLMModel[]>('/api/models/'),
+    serverFetch<ApiKey[]>(API.AUTH.KEYS),
+    serverFetch<Provider[]>(API.CORE.PROVIDERS),
+    serverFetch<LLMModel[]>(API.MODELS.LIST),
   ])
 
   return (
     <div className="max-w-xl">
-      <Link href="/home" className="flex w-fit items-center gap-1 text-sm text-[#9aa3b2] hover:text-[#e7e9ee] transition-colors mb-6">
+      <Link href={ROUTES.HOME} className="flex w-fit items-center gap-1 text-sm text-[#9aa3b2] hover:text-[#e7e9ee] transition-colors mb-6">
         ← Back
       </Link>
       <div className="mb-8">

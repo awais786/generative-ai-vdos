@@ -10,5 +10,6 @@ urlpatterns = [
     path("callback", views.callback, name="callback"),
     path("logout", views.logout, name="logout"),
     path("me", views.me, name="me"),
+    path("dev-login", views.dev_login, name="dev_login"),
     path("", include(router.urls)),
 ]

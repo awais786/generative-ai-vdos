@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .cognito import build_authorize_url, build_logout_url, decode_id_token, exchange_code
-from .models import UserAPIKey
+from .models import UserAPIKey, UserProfile
 from .serializers import UserAPIKeySerializer, UserProfileSerializer
 from .services import CognitoService
 
@@ -72,6 +72,23 @@ def callback(request):
     request.session["refresh_token"] = tokens.get("refresh_token", "")
     request.session["cognito_sub"] = sub
 
+    return redirect(f"{_public_origin(request)}/home")
+
+
+@api_view(["POST"])
+def dev_login(request):
+    """One-click login for local development only. Returns 403 in production."""
+    if not settings.DEBUG:
+        return Response({"error": "Not available in production"}, status=403)
+
+    profile, _ = UserProfile.objects.get_or_create(
+        cognito_sub="dev-local-user",
+        defaults={"email": "dev@local.dev", "name": "Dev User"},
+    )
+    # flush() clears stale session data + rotates key (prevents session fixation
+    # and avoids carrying over tokens from a previous user's session).
+    request.session.flush()
+    request.session["cognito_sub"] = profile.cognito_sub
     return redirect(f"{_public_origin(request)}/home")
 
 
