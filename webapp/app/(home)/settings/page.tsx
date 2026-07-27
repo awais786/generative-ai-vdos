@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import type { ApiKey, Provider } from '@/components/settings/api-keys'
 import { SettingsPanels } from '@/components/settings/settings-panels'
 import { serverFetch } from '@/lib/server-fetch'
@@ -12,6 +13,9 @@ export default async function SettingsPage() {
 
   return (
     <div className="max-w-xl">
+      <Link href="/home" className="flex w-fit items-center gap-1 text-sm text-[#9aa3b2] hover:text-[#e7e9ee] transition-colors mb-6">
+        ← Back
+      </Link>
       <div className="mb-8">
         <h1 className="text-xl font-semibold text-[#e7e9ee]">Settings</h1>
         <p className="text-sm text-[#5a6275] mt-1">Manage your provider API keys and account preferences.</p>

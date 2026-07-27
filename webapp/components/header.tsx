@@ -17,9 +17,9 @@ export function Header({ email, name }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-10 flex items-center gap-4 px-5 py-3 bg-[#0c0e12] border-b border-[#2a2f3a]">
-      <span className="font-bold tracking-tight">
+      <Link href="/home" className="font-bold tracking-tight hover:opacity-80 transition-opacity">
         🎬 AI Video Studio
-      </span>
+      </Link>
 
       <div className="ml-auto flex items-center gap-3">
         <Link
