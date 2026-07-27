@@ -116,6 +116,41 @@ class CallbackViewTest(TestCase):
         self.assertNotIn("cognito_state", self.client.session)
 
 
+class DevLoginViewTest(TestCase):
+    def test_returns_403_when_debug_false(self):
+        with self.settings(DEBUG=False):
+            resp = self.client.post("/api/auth/dev-login")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_redirects_to_home_when_debug_true(self):
+        with self.settings(DEBUG=True):
+            resp = self.client.post("/api/auth/dev-login")
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/home", resp["Location"])
+
+    def test_sets_cognito_sub_in_session(self):
+        with self.settings(DEBUG=True):
+            self.client.post("/api/auth/dev-login")
+        self.assertEqual(self.client.session.get("cognito_sub"), "dev-local-user")
+
+    def test_creates_user_profile_if_missing(self):
+        from apps.accounts.models import UserProfile
+        UserProfile.objects.filter(cognito_sub="dev-local-user").delete()
+        with self.settings(DEBUG=True):
+            self.client.post("/api/auth/dev-login")
+        self.assertTrue(UserProfile.objects.filter(cognito_sub="dev-local-user").exists())
+
+    def test_flushes_stale_session_data(self):
+        session = self.client.session
+        session["cognito_sub"] = "old-user-sub"
+        session["id_token"] = "stale.token"
+        session.save()
+        with self.settings(DEBUG=True):
+            self.client.post("/api/auth/dev-login")
+        self.assertNotIn("id_token", self.client.session)
+        self.assertEqual(self.client.session.get("cognito_sub"), "dev-local-user")
+
+
 class LogoutViewTest(TestCase):
     def setUp(self):
         session = self.client.session

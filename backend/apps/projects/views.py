@@ -1,4 +1,5 @@
 from celery import chain, chord, group
+from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.http import Http404
 from django.shortcuts import redirect
@@ -239,9 +240,14 @@ class ProjectViewSet(viewsets.ModelViewSet):
     def download(self, request, pk=None):
         project = self.get_object()
 
-        video_url = storage_provider.url(project.final_video_path)
-        if not video_url:
-            raise Http404("final.mp4 not found")
+        ts = int(project.updated_at.timestamp()) if project.updated_at else 0
+        cache_key = f"video_url:{project.pk}:{ts}"
+        video_url = cache.get(cache_key)
+        if video_url is None:
+            video_url = storage_provider.url(project.final_video_path)
+            if not video_url:
+                raise Http404("final.mp4 not found")
+            cache.set(cache_key, video_url, timeout=3000)
         return redirect(video_url)
 
     @action(detail=True, methods=["get"])

@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { publicUrl } from '@/lib/public-origin'
+import { ROUTES } from '@/lib/routes'
 
 const DJANGO_SESSION_COOKIE = 'sessionid'
-const PUBLIC_PATHS = ['/api/', '/login']
+const PUBLIC_PATHS = ['/api/', ROUTES.LOGIN]
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -16,7 +17,7 @@ export function middleware(request: NextRequest) {
 
   // No cookie → bounce to login before the server even renders
   if (!hasSession) {
-    return NextResponse.redirect(publicUrl(request, '/login'))
+    return NextResponse.redirect(publicUrl(request, ROUTES.LOGIN))
   }
 
   return NextResponse.next()

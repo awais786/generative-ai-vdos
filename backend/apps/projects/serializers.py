@@ -1,5 +1,6 @@
 import os
 
+from django.core.cache import cache
 from django.db.models import F, Q
 from rest_framework import serializers
 
@@ -92,17 +93,29 @@ class SceneSerializer(serializers.ModelSerializer):
             "media_provider", "created_at", "updated_at",
         ]
 
-    def get_media_path(self, obj) -> str:
-        return _absolute_media_url(
-            storage_provider.url(obj.media_path) or "",
+    def _presigned_url(self, obj, field: str, prefix: str) -> str:
+        field_file = getattr(obj, field)
+        if not field_file:
+            return ""
+        # Key on the file name, not updated_at — voice/status changes don't bust the image URL cache
+        cache_key = f"{prefix}:{obj.pk}:{field_file.name}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        url = _absolute_media_url(
+            storage_provider.url(field_file) or "",
             self.context.get("request"),
         )
+        # 50 min TTL — safely within S3's default 1-hour presigned URL expiry
+        if url:
+            cache.set(cache_key, url, timeout=3000)
+        return url
+
+    def get_media_path(self, obj) -> str:
+        return self._presigned_url(obj, "media_path", "media_url")
 
     def get_audio_path(self, obj) -> str:
-        return _absolute_media_url(
-            storage_provider.url(obj.audio_path) or "",
-            self.context.get("request"),
-        )
+        return self._presigned_url(obj, "audio_path", "audio_url")
 
 
 class SceneUpdateSerializer(ModeratedFieldsMixin, serializers.ModelSerializer):

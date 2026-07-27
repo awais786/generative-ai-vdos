@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { Project } from '@/lib/project-types'
 import StatusPill from './status-pill'
+import { API } from '@/lib/routes'
 
 interface Props {
   project: Project
@@ -16,7 +17,7 @@ export default function PlanningView({ project, onUpdate }: Props) {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/projects/${project.id}/`)
+        const res = await fetch(API.PROJECTS.DETAIL(project.id))
         if (!res.ok) return
         const updated: Project = await res.json()
         if (updated.status !== 'DRAFT' && updated.status !== 'PLANNING') {

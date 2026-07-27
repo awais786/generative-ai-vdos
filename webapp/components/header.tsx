@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { API, ROUTES } from '@/lib/routes'
 
 interface HeaderProps {
   email: string
@@ -9,21 +11,23 @@ interface HeaderProps {
 }
 
 export function Header({ email, name }: HeaderProps) {
+  const router = useRouter()
+
   function handleLogout() {
-    window.location.replace('/api/auth/logout')
+    window.location.replace(API.AUTH.LOGOUT)
   }
 
   const initials = (name || email).slice(0, 1).toUpperCase()
 
   return (
     <header className="sticky top-0 z-10 flex items-center gap-4 px-5 py-3 bg-[#0c0e12] border-b border-[#2a2f3a]">
-      <Link href="/home" className="font-bold tracking-tight hover:opacity-80 transition-opacity">
+      <Link href={ROUTES.HOME} onClick={() => router.refresh()} className="font-bold tracking-tight hover:opacity-80 transition-opacity">
         🎬 AI Video Studio
       </Link>
 
       <div className="ml-auto flex items-center gap-3">
         <Link
-          href="/settings"
+          href={ROUTES.SETTINGS}
           className="text-xs text-[#9aa3b2] hover:text-[#e7e9ee] transition-colors"
         >
           Settings

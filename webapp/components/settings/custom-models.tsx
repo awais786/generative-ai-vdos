@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import type { ApiKey, Provider } from './api-keys'
 import type { LLMModel } from '@/lib/project-types'
+import { API } from '@/lib/routes'
 
 interface Props {
   initialModels: LLMModel[]
@@ -44,7 +45,7 @@ export function CustomModelsPanel({ initialModels, keys, providers }: Props) {
     setError('')
     setSubmitting(true)
     try {
-      const res = await fetch('/api/models/', {
+      const res = await fetch(API.MODELS.LIST, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -69,7 +70,7 @@ export function CustomModelsPanel({ initialModels, keys, providers }: Props) {
 
   async function handleDelete(id: number) {
     setError('')
-    const res = await fetch(`/api/models/${id}/`, { method: 'DELETE' })
+    const res = await fetch(API.MODELS.DETAIL(id), { method: 'DELETE' })
     if (!res.ok) { setError('Something went wrong. Try again.'); return }
     setModels(prev => prev.filter(m => m.id !== id))
   }

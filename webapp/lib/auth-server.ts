@@ -1,5 +1,6 @@
 import { cache } from 'react'
 import { cookies } from 'next/headers'
+import { API } from '@/lib/routes'
 
 const DJANGO_ORIGIN = (process.env.DJANGO_ORIGIN ?? 'http://localhost:8000').replace(/\/$/, '')
 
@@ -16,7 +17,7 @@ export const getUser = cache(async (): Promise<UserProfile | null> => {
   const session = cookieStore.get('sessionid')
   if (!session) return null
 
-  const res = await fetch(`${DJANGO_ORIGIN}/api/auth/me`, {
+  const res = await fetch(`${DJANGO_ORIGIN}${API.AUTH.ME}`, {
     headers: { Cookie: `sessionid=${session.value}` },
     cache: 'no-store',
   })

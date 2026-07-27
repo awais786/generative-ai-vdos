@@ -6,6 +6,7 @@ import { Project, ShotPlan, Character, Scene } from '@/lib/project-types'
 import { getActionErrorMessage } from '@/lib/api-errors'
 import { Button } from '@/components/ui/button'
 import StatusPill from './status-pill'
+import { API, ROUTES } from '@/lib/routes'
 
 interface Props {
   project: Project
@@ -44,7 +45,7 @@ export default function PlanEditor({ project, onUpdate }: Props) {
     const body: Record<string, unknown> = { shot_plan: newPlan }
     if (extraFields?.title !== undefined) body.title = extraFields.title
 
-    const res = await fetch(`/api/projects/${project.id}/`, {
+    const res = await fetch(API.PROJECTS.DETAIL(project.id), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -60,7 +61,7 @@ export default function PlanEditor({ project, onUpdate }: Props) {
   }
 
   async function patchScene(index: number, updates: Partial<Scene>) {
-    const res = await fetch(`/api/projects/${project.id}/scenes/${index}/`, {
+    const res = await fetch(API.PROJECTS.SCENE(project.id, index), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
@@ -83,7 +84,7 @@ export default function PlanEditor({ project, onUpdate }: Props) {
     if (!refineText.trim()) return
     setRefineError('')
     startRefine(async () => {
-      const res = await fetch(`/api/projects/${project.id}/refine/`, {
+      const res = await fetch(API.PROJECTS.REFINE(project.id), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ instruction: refineText.trim() }),
@@ -100,7 +101,7 @@ export default function PlanEditor({ project, onUpdate }: Props) {
 
   function handleApprove() {
     startApprove(async () => {
-      const res = await fetch(`/api/projects/${project.id}/approve/`, {
+      const res = await fetch(API.PROJECTS.APPROVE(project.id), {
         method: 'POST',
       })
       if (res.ok || res.status === 202) {
@@ -114,11 +115,11 @@ export default function PlanEditor({ project, onUpdate }: Props) {
 
   function handleDelete() {
     startDelete(async () => {
-      const res = await fetch(`/api/projects/${project.id}/`, {
+      const res = await fetch(API.PROJECTS.DETAIL(project.id), {
         method: 'DELETE',
       })
       if (res.status === 204) {
-        router.push('/home')
+        router.push(ROUTES.HOME)
       }
     })
   }

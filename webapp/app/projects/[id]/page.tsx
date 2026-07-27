@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { notFound } from 'next/navigation'
 import { Project } from '@/lib/project-types'
 import ProjectPage from '@/components/project/project-page'
+import { API, ROUTES } from '@/lib/routes'
 
 const DJANGO_ORIGIN = (
   process.env.DJANGO_ORIGIN ?? 'http://localhost:8000'
@@ -17,7 +18,7 @@ export default async function ProjectDetailPage({
   const cookieStore = await cookies()
   const session = cookieStore.get('sessionid')
 
-  const res = await fetch(`${DJANGO_ORIGIN}/api/projects/${id}/`, {
+  const res = await fetch(`${DJANGO_ORIGIN}${API.PROJECTS.DETAIL(id)}`, {
     headers: { Cookie: `sessionid=${session?.value ?? ''}` },
     cache: 'no-store',
   })
@@ -30,7 +31,7 @@ export default async function ProjectDetailPage({
 
   return (
     <>
-      <Link href="/home" className="flex w-fit items-center gap-1 text-sm text-[#9aa3b2] hover:text-[#e7e9ee] transition-colors mb-6">
+      <Link href={ROUTES.HOME} className="flex w-fit items-center gap-1 text-sm text-[#9aa3b2] hover:text-[#e7e9ee] transition-colors mb-6">
         ← Back
       </Link>
 

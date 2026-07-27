@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Button } from '@/components/ui/button'
+import { API } from '@/lib/routes'
 
 export interface Provider {
   id: number
@@ -55,7 +56,7 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    const res = await fetch('/api/auth/keys/', {
+    const res = await fetch(API.AUTH.KEYS, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -87,7 +88,7 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
 
   async function handleDelete(id: number) {
     setError('')
-    const res = await fetch(`/api/auth/keys/${id}/`, { method: 'DELETE' })
+    const res = await fetch(API.AUTH.KEY(id), { method: 'DELETE' })
     if (!res.ok) { setError('Something went wrong. Try again.'); return }
     setKeys(prev => prev.filter(k => k.id !== id))
   }
@@ -97,7 +98,7 @@ export function ApiKeysPanel({ keys, onKeysChange: setKeys, providers }: Props) 
     setError('')
     const body: Record<string, string> = { label: editForm.label, api_url: editForm.api_url }
     if (editForm.api_key) body.api_key = editForm.api_key
-    const res = await fetch(`/api/auth/keys/${id}/`, {
+    const res = await fetch(API.AUTH.KEY(id), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
