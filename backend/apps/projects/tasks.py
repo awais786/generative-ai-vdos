@@ -111,9 +111,9 @@ def run_refine_stage(self, project_id, instruction):
     if project is None:
         return {"project_id": str(project_id)}
 
-    if project.status != Status.REVIEW:
+    if project.status != Status.REFINING:
         publish_event(project_id, Stage.PLAN, Level.WARN,
-                      f"Refine skipped — project is {project.status}, expected REVIEW")
+                      f"Refine skipped — project is {project.status}, expected REFINING")
         return {"project_id": str(project_id)}
 
     try:
@@ -126,10 +126,6 @@ def run_refine_stage(self, project_id, instruction):
         ]
         current_plan = ShotPlan.model_validate(plan_data)
 
-        # Transition before resolving the key: a MissingAPIKeyError raised here
-        # must still land on a status that's allowed to move to FAILED (REVIEW
-        # can't go straight to FAILED — only PLANNING can).
-        project.transition_status(Status.PLANNING)
         secure_key = resolve_secure_key(project.owner, llm.provider)
 
         publish_event(project_id, Stage.PLAN, Level.INFO, f"Revising shot plan with {model_id}")

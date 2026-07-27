@@ -4,6 +4,7 @@ from django.db import models
 class Status(models.TextChoices):
     DRAFT = "DRAFT"
     PLANNING = "PLANNING"
+    REFINING = "REFINING"
     REVIEW = "REVIEW"
     IMAGE_REVIEW = "IMAGE_REVIEW"
     GENERATING = "GENERATING"

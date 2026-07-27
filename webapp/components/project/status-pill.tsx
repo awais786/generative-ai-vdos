@@ -1,16 +1,7 @@
-const DOT: Record<string, { color: string; pulse: boolean }> = {
-  DRAFT:            { color: '#9aa3b2', pulse: false },
-  PLANNING:         { color: '#6ea8fe', pulse: true  },
-  REVIEW:           { color: '#5cd6a4', pulse: false },
-  IMAGE_REVIEW:     { color: '#6ea8fe', pulse: false },
-  GENERATING:       { color: '#f0a35e', pulse: true  },
-  VIDEO_GENERATING: { color: '#f0a35e', pulse: true  },
-  DONE:             { color: '#5cd6a4', pulse: false },
-  FAILED:           { color: '#f06a6a', pulse: false },
-}
+import { STATUS_CONFIG } from '@/lib/project-types'
 
 export default function StatusPill({ status }: { status: string }) {
-  const { color, pulse } = DOT[status] ?? { color: '#9aa3b2', pulse: false }
+  const { color, pulse } = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] ?? { color: '#9aa3b2', pulse: false }
   return (
     <div className="inline-flex items-center gap-1.5">
       <span

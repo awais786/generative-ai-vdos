@@ -1,12 +1,25 @@
 export type ProjectStatus =
   | 'DRAFT'
   | 'PLANNING'
+  | 'REFINING'
   | 'REVIEW'
   | 'IMAGE_REVIEW'
   | 'GENERATING'
   | 'VIDEO_GENERATING'
   | 'DONE'
   | 'FAILED'
+
+export const STATUS_CONFIG: Record<ProjectStatus, { color: string; pulse: boolean }> = {
+  DRAFT:            { color: '#9aa3b2', pulse: false },
+  PLANNING:         { color: '#6ea8fe', pulse: true  },
+  REFINING:         { color: '#a78bfa', pulse: true  },
+  REVIEW:           { color: '#5cd6a4', pulse: false },
+  IMAGE_REVIEW:     { color: '#6ea8fe', pulse: false },
+  GENERATING:       { color: '#f0a35e', pulse: true  },
+  VIDEO_GENERATING: { color: '#f0a35e', pulse: true  },
+  DONE:             { color: '#5cd6a4', pulse: false },
+  FAILED:           { color: '#f06a6a', pulse: false },
+}
 
 export interface Character {
   name: string
