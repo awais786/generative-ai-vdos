@@ -53,7 +53,7 @@ entirely from the browser, with progress streamed live, isolated to the signed-i
 | Frontend lang| **Node.js 20+ / TypeScript**            | Next.js 14 App Router. |
 | API          | **Django 5.2** + **Django REST Framework** | Thin JSON API only — no Django templates. DRF serves `/api/`. |
 | Auth         | **AWS Cognito** user pool               | Hosted UI / OAuth2; Django validates Cognito JWTs (JWKS). See §4a. |
-| Async jobs   | **Celery 5.4** + **Redis**              | Redis is broker + result backend + SSE pub/sub. |
+| Async jobs   | **Celery 5.4** + **Redis**              | Redis is broker + result backend. |
 | DB           | **SQLite**                              | Single file, zero setup. Holds projects + a thin user-profile row keyed by Cognito `sub`. |
 | Frontend     | **Next.js 14** (App Router) + shadcn/ui + Tailwind | Proxies `/api/*` to Django via `next.config.js` rewrites. |
 | Media        | Local filesystem, served by Django (dev) | Reuses the pipeline's `output/<owner>/<id>/` layout. |
@@ -74,22 +74,22 @@ entirely from the browser, with progress streamed live, isolated to the signed-i
                   AWS Cognito (user pool, Hosted UI)
                         ▲ OAuth code ▼ JWT
 Browser ──fetch──▶ Next.js 14 ──/api/* proxy──▶ Django DRF ──enqueue──▶ Redis ──▶ Celery worker
-   ▲                  (App Router)                   │                                   │
-   │                                                 │ reads/writes                      │ calls pipeline/ functions
-   └──EventSource(SSE via proxy)────────────────────┤                                    ▼
-                                                     └── SQLite (UserProfile/Project/ ◀── output/<owner>/<id>/ on disk
-                                                           Scene/JobLog)                  (images, audio, final.mp4)
+                   (App Router)                   │                                   │
+                                                  │ reads/writes                      │ calls pipeline/ functions
+                                                  │                                    ▼
+                                                  └── SQLite (UserProfile/Project/ ◀── output/<owner>/<id>/ on disk
+                                                        Scene/JobLog)                  (images, audio, final.mp4)
 ```
 
 - **Next.js** serves all pages. All `/api/*` calls are proxied to Django via
   `next.config.js` rewrites — same origin for cookies, same routing shape as the
   full SaaS target (CloudFront routes `/api/*` to Django ALB).
 - **Django** is a pure JSON API: Cognito OAuth callback, JWT verification, DB reads/writes,
-  Celery enqueue, SSE streaming, media serving. No templates.
+  Celery enqueue, media serving. No templates.
 - The **Celery worker** does all heavy lifting by calling the existing
   `pipeline/` modules as a **library** — no shelling out to `python -m pipeline.*`.
-- Progress flows worker → Redis pub/sub channel → Django SSE endpoint → Next.js proxy → browser,
-  and is also persisted to `JobLog` so a late-joining client can replay state.
+- Progress is persisted to `JobLog`; clients poll `GET /api/projects/{id}/logs/?after={pk}`
+  (cursor-based) to tail events without a persistent connection.
 
 **Reuse, don't rewrite:** the worker imports `pipeline.script_agent`, `pipeline.images`,
 `pipeline.voiceover`, `pipeline.assemble`, `pipeline.schema`. The web layer adds
@@ -127,10 +127,14 @@ name/email without calling Cognito on every request.
 | `title`        | char, blank                 | Filled from the plan once generated. |
 | `status`       | char (enum, see below)      | |
 | `shot_plan`    | JSON, null                  | The full `ShotPlan` dict; editable during REVIEW. |
-| `image_backend`| char                        | Snapshot of the chosen backend (default from `.env`). |
-| `animate`      | bool, default False         | Opt-in; capped by `MAX_ANIMATED_SCENES`. |
-| `narrator_voice`| char, blank                | edge-tts voice; default from `.env`. |
-| `music`        | char, blank                 | Optional music file/mood. |
+| `style`        | char (StylePreset enum)     | Visual style preset applied to image prompts. |
+| `animate`      | bool, default False         | Opt-in animation; capped by `MAX_ANIMATED_SCENES`. |
+| `narrator_voice`| char (NarratorVoice enum)  | edge-tts voice; default from `.env`. |
+| `music`        | char (MusicMood enum), blank| Optional background music mood. |
+| `plan_model`   | FK → LLMModel, null        | LLM used for the plan stage. |
+| `image_model`  | FK → LLMModel, null        | Image backend used for generation. |
+| `video_model`  | FK → LLMModel, null        | Video backend used for animation. |
+| `final_video_path` | FileField, blank       | Stored final.mp4 via the configured storage backend. |
 | `error`        | text, blank                 | Last failure message if `status=FAILED`. |
 | `stale`        | bool, default False         | An image/voiceover changed since the last assemble — `final.mp4` is out of date until `reassemble/`. |
 | `created_at` / `updated_at` | datetime       | |
@@ -138,15 +142,26 @@ name/email without calling Cognito on every request.
 ### Scene
 **Generation state only.** The plan content (narration, image_prompt, characters,
 negatives) lives in `Project.shot_plan` — the single editable source of truth. A
-Scene row exists per scene purely to track its image artifact, keyed by `index` into
+Scene row exists per scene purely to track its media artifact, keyed by `index` into
 the plan. This avoids a dual source of truth between the JSON and the rows.
+
 | Field | Type | Notes |
 |-------|------|-------|
 | `project` | FK → Project | |
 | `index` | int | Index into `shot_plan["scenes"]`; the scene's order. |
-| `image_path` | char, blank | Relative to `output/<owner>/<id>/` (e.g. `images/scene_03.png`). |
-| `image_status` | char (enum: PENDING/RUNNING/DONE/FAILED) | |
-| `image_provider` | char, blank | Backend that actually produced it (the fallback chain may differ from the request). |
+| `media_path` | FileField, blank | Image (PNG) or video (MP4) stored via configured storage backend. |
+| `audio_path` | FileField, blank | Voiceover MP3. |
+| `words_path` | FileField, blank | Word-boundary timestamps JSON for caption sync. |
+| `media_status` | char (enum: PENDING/RUNNING/DONE/FAILED) | Tracks image/video generation. |
+| `voice_status` | char (enum: PENDING/RUNNING/DONE/FAILED) | Tracks TTS generation. |
+| `media_provider` | char, blank | Backend that produced the image/video (fallback chain may differ from request). |
+| `preview_url` | char, blank | Ephemeral presigned URL cached for the frontend. |
+| `animate` | bool, default False | Whether this scene should be animated to video. |
+| `compose` | JSON, null | Remotion composition spec for text-card scenes. |
+| `negative_prompt` | text, blank | Per-scene negative prompt merged with global/character negatives. |
+| `on_screen_text` | char, blank | Text overlaid on the scene. |
+| `voice` | char, blank | Per-scene voice override. |
+| `media_prompt` | text, blank | Expanded image prompt after character substitution. |
 
 > Rows are (re)created from `shot_plan` on **approve**, once the plan is final. Editing
 > the plan during REVIEW touches only the JSON; no Scene rows exist yet (D1, §11).
@@ -160,8 +175,16 @@ the plan. This avoids a dual source of truth between the JSON and the rows.
 | `message` | text | Human-readable progress line. |
 | `created_at` | datetime | |
 
-**Project status enum:** `DRAFT → PLANNING → REVIEW → GENERATING → DONE`, with
-`FAILED` reachable from `PLANNING` or `GENERATING`.
+**Project status enum:**
+```
+DRAFT → PLANNING → REVIEW → GENERATING ──(scenes exist)──→ IMAGE_REVIEW → VIDEO_GENERATING → DONE
+                                       ↘ (no scenes)                                        ↗ FAILED
+                                         DONE ←─────────────────────────────────────────────
+```
+- `GENERATING`: images are being produced
+- `IMAGE_REVIEW`: user gate — voice + assembly held until `POST /approve-images/`
+- `VIDEO_GENERATING`: video animation + voiceover + assembly running
+- `FAILED` reachable from `PLANNING`, `GENERATING`, `IMAGE_REVIEW`, or `VIDEO_GENERATING`
 
 ### ERD
 
@@ -180,12 +203,16 @@ the plan. This avoids a dual source of truth between the JSON and the rows.
 │  owner         fk →profile │  ← every query filtered by signed-in user
 │  prompt        text        │
 │  title         char        │
-│  status        enum        │──── DRAFT→PLANNING→REVIEW→GENERATING→DONE  (·→FAILED)
+│  status        enum        │──── DRAFT→PLANNING→REVIEW→GENERATING→IMAGE_REVIEW→VIDEO_GENERATING→DONE (·→FAILED)
 │  shot_plan     json  (null)│         ← single source of truth for plan content
-│  image_backend char        │
+│  style         char        │
 │  animate       bool        │
 │  narrator_voice char       │
 │  music         char        │
+│  plan_model    fk →LLMModel│
+│  image_model   fk →LLMModel│
+│  video_model   fk →LLMModel│
+│  final_video_path FileField│
 │  error         text        │
 │  stale         bool        │         ← final.mp4 out of date vs current assets
 │  created_at    datetime    │
@@ -198,13 +225,18 @@ the plan. This avoids a dual source of truth between the JSON and the rows.
 │ Scene           │ │ JobLog             │
 │  project  fk    │ │  project  fk       │
 │  index    int   │ │  stage    char     │
-│  image_path     │ │  level    char     │
-│  image_status   │ │  message  text     │
-│  image_provider │ │  created_at        │
-└─────────────────┘ └────────────────────┘
-  image state only,    append-only progress
-  index → shot_plan      (also replayed on
-  ["scenes"][index]       SSE reconnect)
+│  media_path     │ │  level    char     │
+│  audio_path     │ │  message  text     │
+│  words_path     │ │  created_at        │
+│  media_status   │ └────────────────────┘
+│  voice_status   │   append-only progress
+│  media_provider │   (poll via /logs/)
+│  preview_url    │
+│  animate        │
+└─────────────────┘
+  media state only,
+  index → shot_plan
+  ["scenes"][index]
 ```
 
 State transitions (who triggers them):
@@ -216,9 +248,14 @@ State transitions (who triggers them):
 | `PLANNING` | `run_plan_stage` raises | `FAILED` |
 | `REVIEW` | `PATCH` (edit plan) | `REVIEW` (no transition) |
 | `REVIEW` | `POST /approve/` | `GENERATING` |
-| `GENERATING` | assemble chord completes | `DONE` |
+| `GENERATING` | image chord completes (scenes exist) | `IMAGE_REVIEW` |
+| `GENERATING` | assemble completes (no scenes) | `DONE` |
 | `GENERATING` | any stage raises | `FAILED` |
-| `FAILED` | `POST /approve/` (retry) | `GENERATING` |
+| `IMAGE_REVIEW` | `POST /approve-images/` | `VIDEO_GENERATING` |
+| `IMAGE_REVIEW` | any stage raises | `FAILED` |
+| `VIDEO_GENERATING` | video + assemble completes | `DONE` |
+| `VIDEO_GENERATING` | any stage raises | `FAILED` |
+| `FAILED` | `POST /approve/` or `POST /retry/` | `GENERATING` |
 
 ---
 
@@ -262,20 +299,25 @@ only on the caller's own projects. Base path `/api/`.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/projects/` | Create a project from `{prompt, image_backend?, animate?, voice?}`; enqueues the plan task → `PLANNING`. |
+| `POST` | `/api/projects/` | Create a project from `{prompt, image_model?, animate?, narrator_voice?}`; enqueues the plan task → `PLANNING`. |
 | `GET`  | `/api/projects/` | List projects (id, title, status, created_at). |
 | `GET`  | `/api/projects/{id}/` | Detail: project + scenes + recent JobLog. |
 | `PATCH`| `/api/projects/{id}/` | Manually edit `shot_plan` (allowed only while `REVIEW`). |
 | `POST` | `/api/projects/{id}/refine/` | Revise the plan via a natural-language instruction (LLM re-run); `REVIEW` only. |
 | `DELETE`| `/api/projects/{id}/` | Delete row + `output/<owner>/<id>/` folder. |
-| `POST` | `/api/projects/{id}/approve/` | Approve the plan; enqueues the assets pipeline → `GENERATING`. |
+| `POST` | `/api/projects/{id}/approve/` | Approve the plan → `GENERATING`; also retries a `FAILED` project. |
+| `POST` | `/api/projects/{id}/retry/` | Retry a `FAILED` project from the first incomplete stage. |
+| `POST` | `/api/projects/{id}/approve-images/` | Approve generated images → proceed to voice + assembly (`IMAGE_REVIEW` gate). |
 | `POST` | `/api/projects/{id}/scenes/{index}/regenerate/` | Re-run one scene's image. |
 | `POST` | `/api/projects/{id}/regenerate-images/` | Re-run **all** scene images. |
 | `POST` | `/api/projects/{id}/scenes/{index}/revoice/` | Edit one scene's narration/voice and re-run its TTS. |
 | `POST` | `/api/projects/{id}/regenerate-voiceovers/` | Re-run **all** scene voiceovers. |
 | `POST` | `/api/projects/{id}/reassemble/` | Re-stitch `final.mp4` from current assets (clears `stale`). |
-| `GET`  | `/api/projects/{id}/events/` | **SSE** stream of progress events. |
-| `GET`  | `/api/projects/{id}/download/` | Serve `output/<owner>/<id>/final.mp4`. |
+| `GET`  | `/api/projects/{id}/logs/?after={pk}` | Poll pipeline progress events (cursor-based). |
+| `GET`  | `/api/projects/{id}/download/` | Serve `final.mp4` via storage backend. |
+| `GET`  | `/api/projects/{id}/scenes/{index}/media-urls/` | Signed URL for scene image/video. |
+| `GET`  | `/api/projects/{id}/scenes/{index}/audio-urls/` | Signed URL for scene audio. |
+| `GET\|POST\|DELETE` | `/api/models/` | User-scoped LLM model registry (list / create / delete; no update). |
 
 The review gate (`approve`) is the web equivalent of the CLI's plan→images review
 gate. Generation never starts until the operator approves, matching the
@@ -289,7 +331,7 @@ rest fall back to the `.env` flags (D3).
 ```jsonc
 // request
 { "prompt": "a lonely lighthouse keeper befriends a storm petrel",
-  "image_backend": "qwen",      // optional override; else IMAGE_BACKEND
+  "image_model": "qwen-vl-max", // optional model_id; else global default
   "animate": false,              // optional; spends credit if true
   "narrator_voice": "en-US-AndrewNeural", // optional
   "music": "calm" }             // optional mood
@@ -298,16 +340,18 @@ rest fall back to the `.env` flags (D3).
   "created_at": "2026-06-14T10:00:00Z" }
 ```
 
-**`GET /api/projects/{id}/`** — detail (poll-free; SSE drives live updates).
+**`GET /api/projects/{id}/`** — project detail; pair with `/logs/` polling for live updates.
 ```jsonc
 { "id": "9f1c…", "status": "REVIEW", "title": "The Keeper and the Petrel",
-  "image_backend": "qwen", "animate": false,
+  "image_model": "qwen-vl-max", "animate": false,
   "shot_plan": { /* full ShotPlan dict — schema.py contract */ },
   "scenes": [
-    { "index": 0, "image_status": "DONE",
-      "image_path": "images/scene_00.png", "image_provider": "qwen-image" },
-    { "index": 1, "image_status": "PENDING",
-      "image_path": "", "image_provider": "" }
+    { "index": 0, "media_status": "done",
+      "media_path": "/media/…/images/scene_00.png", "media_provider": "qwen-image",
+      "voice_status": "done" },
+    { "index": 1, "media_status": "pending",
+      "media_path": "", "media_provider": "",
+      "voice_status": "pending" }
   ],
   "log": [ { "stage": "plan", "level": "info",
              "message": "consistency review passed",
@@ -317,7 +361,7 @@ rest fall back to the `.env` flags (D3).
 Before approve, `scenes` is `[]` (no rows yet — D1); the plan is read from `shot_plan`.
 
 **`PATCH /api/projects/{id}/`** — edit the plan while `REVIEW`. Body is a partial:
-`{ "shot_plan": { … }, "image_backend": "openai", "animate": true }`. Editing in any
+`{ "shot_plan": { … }, "image_model": "dall-e-3", "animate": true }`. Editing in any
 other status → `409 Conflict`. Returns the updated detail object.
 
 **`POST /api/projects/{id}/refine/`** — revise the plan with a natural-language
@@ -340,13 +384,13 @@ Calling it from `REVIEW` or `FAILED` is valid (the latter is retry); any other
 status → `409`.
 
 **`POST /api/projects/{id}/scenes/{index}/regenerate/`** — re-run one image. Optional
-`{ "image_backend": "gpt-image-1" }` to force a backend for this scene only (explicit
-opt-in to the paid backend). `202`; the scene's `image_status` returns to `RUNNING`
-and progress streams over SSE. Allowed in `REVIEW` and `DONE`.
+`{ "image_model": "dall-e-3" }` to force a specific model for this scene only (explicit
+opt-in to a paid model). `202`; the scene's `media_status` returns to `running`.
+Poll `/logs/?after={pk}` for progress. Allowed in `REVIEW` and `DONE`.
 
 **`POST /api/projects/{id}/regenerate-images/`** — re-run **all** scene images at once.
-Optional `{ "image_backend": "…" }` applies to every scene. Resets each scene's
-`image_status` to `PENDING` and enqueues the image `group` only — voiceover is
+Optional `{ "image_model": "…" }` applies to every scene. Resets each scene's
+`media_status` to `pending` and enqueues the image `group` only — voiceover is
 untouched. `202`. Allowed in `DONE`/`FAILED`. Regenerating an image changes a source
 asset, so it sets `stale=true`; `final.mp4` is unchanged until **`reassemble/`**.
 
@@ -372,13 +416,14 @@ Optional `{ "voice": "…" }` sets the narrator voice for every scene. `202`; se
 current images + audio; refreshes `final.mp4` and clears `stale`. No body. `202`.
 Allowed in `DONE`/`FAILED`.
 
-**`GET /api/projects/{id}/events/`** — `text/event-stream`. Each event:
+**`GET /api/projects/{id}/logs/?after={pk}`** — cursor-based polling. Returns all
+`JobLog` entries with `id > after` (omit `after` for the full history). Each entry:
+```jsonc
+{ "id": 42, "stage": "images", "level": "info",
+  "message": "scene 3/12 done", "created_at": "2026-06-14T10:01:05Z" }
 ```
-data: {"stage":"images","level":"info","message":"scene 3/12 done",
-       "status":"GENERATING","scene_index":3}
-```
-On connect: replay current `status` + recent `JobLog`, then tail live. Client closes
-on terminal `status` (`DONE`/`FAILED`).
+Poll this endpoint on a short interval; advance `after` to the last received `id`.
+Stop polling when the project's `status` reaches a terminal value (`DONE`/`FAILED`).
 
 **Errors** use DRF defaults: `401` (not signed in), `400` (validation), `404` (no such
 project/scene **or not owned by the caller** — see §4a), `409` (action not allowed in
@@ -428,15 +473,15 @@ the voiceover mp3s in `assemble`, **never** from the plan (existing invariant).
 
 ---
 
-## 8. Progress / SSE
+## 8. Progress / cursor polling
 
-- Worker publishes JSON events to Redis channel `project:{id}:events`:
-  `{stage, level, message, status, scene_index?}`.
-- `GET /api/projects/{id}/events/` subscribes to that channel and relays as
-  `text/event-stream`.
-- On connect, the endpoint first replays current `status` + recent `JobLog` so a
-  refresh/late join shows correct state, then tails live events.
-- Browser uses `EventSource`; closes the stream on a terminal `status`
+- Worker writes a `JobLog` row for every significant event via `publish_event()`
+  (`{stage, level, message}`). No Redis pub/sub channel is used.
+- Clients poll `GET /api/projects/{id}/logs/?after={pk}` on a short interval
+  (e.g. 2 s), advancing the cursor to the last received `id` after each response.
+- A late-joining or refreshed client gets the full history by omitting `after` (or
+  passing `after=0`), then tails from there.
+- Stop polling when `GET /api/projects/{id}/` reports a terminal `status`
   (`DONE`/`FAILED`).
 
 ---
@@ -467,10 +512,10 @@ Hosted UI (§4a). A visual reference for every screen lives in
 2. **Project** (`/projects/[id]`): single route, view adapts to `status`:
    - **REVIEW** — shot plan displayed as editable cards, two revision paths side by side:
      - **Refine box** — text input + "Refine" button → `POST /api/projects/{id}/refine/`;
-       spinner while `PLANNING`, plan updates via SSE.
+       spinner while `PLANNING`, plan updates via `/logs/` polling.
      - **Manual edit** — inline-editable fields → `PATCH /api/projects/{id}/`.
      Approve / Delete buttons.
-   - **GENERATING** — live progress feed (SSE via `EventSource`); image gallery tiles
+   - **GENERATING** — live progress feed (polling `/logs/?after={pk}`); image gallery tiles
      fill in as each scene lands (PENDING → RUNNING → DONE).
    - **DONE / FAILED** — three edit-then-regenerate panels:
      - **Images** — scene image grid; per-image **Regenerate** + **Regenerate all**.
@@ -484,7 +529,7 @@ Hosted UI (§4a). A visual reference for every screen lives in
 
 - **`<ProjectForm />`** — prompt + options on index, calls `POST /api/projects/`.
 - **`<PlanEditor />`** — scene cards with editable fields; Refine box + manual edit.
-- **`<ProgressFeed />`** — SSE `EventSource` subscriber; renders log + image gallery.
+- **`<ProgressFeed />`** — polls `/logs/?after={pk}` on an interval; renders log + image gallery.
 - **`<SceneGrid />`** — image tiles with status overlays and per-scene regenerate.
 - **`<VideoPlayer />`** — `<video>` + download link + stale-aware Rebuild button.
 
@@ -520,8 +565,8 @@ These were open; now settled (explicit by preference — no defaults left implic
 | # | Decision |
 |---|----------|
 | D1 | **Plan JSON is the single source of truth.** `Scene` rows hold image state only, (re)built from `shot_plan` on approve (§4). |
-| D2 | **Progress uses SSE**, not WebSockets — one-way, simpler, no extra deps. |
-| D3 | **`.env` is the default source of truth for providers/credentials.** The UI overrides per-project: `image_backend`, `animate`, `voice`, `music`, **and (per §14) the LLM + image model chosen from the user's own model registry**. `.env` remains the fallback when no per-user model is selected. |
+| D2 | **Progress uses cursor polling** (`/logs/?after={pk}`), not SSE or WebSockets — no persistent connection, trivially proxied, late-joiners get full history for free. |
+| D3 | **`.env` is the default source of truth for providers/credentials.** The UI overrides per-project: `image_model`, `animate`, `narrator_voice`, `music`, **and (per §14) the LLM + image model chosen from the user's own model registry**. `.env` remains the fallback when no per-user model is selected. |
 | D4 | **One Celery worker, default concurrency.** Image tasks fan out via the chord's `group`; if a free-tier backend (Qwen) rate-limits, lower worker concurrency rather than adding backpressure logic. |
 | D5 | **Music: plan-driven mood first.** Reuse `music/` + its CC-BY attribution; a file picker comes later. |
 | D6 | **Users bring their own models + API keys** (per §14), chosen over an admin-defined shared registry. Larger scope (encrypted key storage, per-request routing) — scheduled **Sprint 2+**, not the initial MVP slice. |
@@ -542,7 +587,7 @@ uv sync --extra webapp
 cd webapp && npm install
 
 # Four processes (run each in its own terminal):
-redis-server                              # broker + SSE pub/sub
+redis-server                              # broker + result backend
 uv run celery -A webapp worker -l info   # generation worker
 uv run python manage.py migrate && uv run python manage.py runserver  # Django API on :8000
 cd webapp && npm run dev                 # Next.js on :3000 → http://localhost:3000
@@ -587,7 +632,7 @@ the other epics build on. Jawad floats across all three.
 **A1. Backend scaffolding — Django 5.2 + DRF + Next.js skeleton**
 - **Contract:** A `webapp/` Django 5.2 project + DRF; webapp deps added as a `webapp` optional group in `pyproject.toml` (`uv sync --extra webapp`).
 - **Acceptance criteria:** `uv run python manage.py check` passes; `runserver` boots on :8000.
-- **Tests & edge cases:** smoke test imports `pipeline.schema` from uv venv; missing `.env` → clear startup error; proxy correctly forwards cookies and SSE streams.
+- **Tests & edge cases:** smoke test imports `pipeline.schema` from uv venv; missing `.env` → clear startup error; proxy correctly forwards cookies.
 - **Review focus:** dependency isolation; proxy config; no accidental coupling into `pipeline/`.
 
 **A2. Data models — UserProfile / Project / Scene / JobLog (§4)**
@@ -627,7 +672,7 @@ the other epics build on. Jawad floats across all three.
   media serving also enforces ownership.
 - **Tests & edge cases:** cross-user GET/PATCH/DELETE/download all 404; anonymous → 401;
   direct media path traversal blocked.
-- **Review focus:** authorization on **every** path incl. SSE + media; behavioral regression
+- **Review focus:** authorization on **every** path incl. `/logs/` + media; behavioral regression
   tests for isolation.
 
 **A6. Celery + Redis async infrastructure (§6)**
@@ -635,10 +680,9 @@ the other epics build on. Jawad floats across all three.
   `run_refine_stage`, `run_image_stage`, `run_voice_stage`, `run_assemble_stage` wrap the
   existing `pipeline/` functions as a library (no shelling out).
 - **Acceptance criteria:** approve enqueues the chord
-  `group(images) | voice | assemble`; each task publishes progress to `project:{id}:events`
-  and persists `JobLog`.
-- **Tests & edge cases:** any task raising sets `status=FAILED` + error JobLog + terminal SSE
-  event; worker restart mid-job leaves consistent state; Qwen rate-limit lowers concurrency
+  `group(images) | voice | assemble`; each task persists progress to `JobLog` via `publish_event()`.
+- **Tests & edge cases:** any task raising sets `status=FAILED` + error `JobLog` entry;
+  worker restart mid-job leaves consistent state; Qwen rate-limit lowers concurrency
   (D4), no backpressure code.
 - **Review focus:** error handling, deployment safety, the FAILED-path contract.
 
@@ -660,15 +704,15 @@ the other epics build on. Jawad floats across all three.
 
 **B3. Plan review + revise UI (§5 `PATCH`/`refine`, §9.2 REVIEW)**
 - **Contract:** `<PlanEditor />` component on `/projects/[id]` (REVIEW state) — Refine box → `POST /api/projects/{id}/refine/` (LLM) and inline editable scene cards → `PATCH /api/projects/{id}/` — plus Approve / Delete buttons.
-- **Acceptance criteria:** refine shows a spinner during `PLANNING` and updates plan via SSE; manual edits persist on blur/save; editing outside REVIEW → 409 surfaced as a toast/error; approve disabled until plan exists.
+- **Acceptance criteria:** refine shows a spinner during `PLANNING` and updates plan via `/logs/` polling; manual edits persist on blur/save; editing outside REVIEW → 409 surfaced as a toast/error; approve disabled until plan exists.
 - **Tests & edge cases:** concurrent refine + manual edit resolves to one source of truth; 409 handled gracefully.
 - **Review focus:** review gate enforced (no generation pre-approve); single-source plan.
 
-**B4. Generation screen + live progress via SSE (§8, §9.2 GENERATING)**
-- **Contract:** `<ProgressFeed />` component subscribes to `EventSource('/api/projects/{id}/events/')` (proxied to Django); renders log live and fills `<SceneGrid />` as scenes land (PENDING→RUNNING→DONE).
-- **Acceptance criteria:** ≥1 event per stage rendered; on (re)connect replays current status + recent JobLog then tails live; `EventSource` closed on terminal status.
-- **Tests & edge cases:** late-joiner/refresh shows correct state (replay); reconnect after drop loses no terminal event; FAILED renders error + retry.
-- **Review focus:** reconnect/replay correctness; SSE works through Next.js proxy; no busy-polling fallback.
+**B4. Generation screen + live progress via polling (§8, §9.2 GENERATING)**
+- **Contract:** `<ProgressFeed />` component polls `GET /api/projects/{id}/logs/?after={pk}` every ~2 s, advancing the cursor on each response; renders log live and fills `<SceneGrid />` as scenes land (PENDING→RUNNING→DONE).
+- **Acceptance criteria:** ≥1 log entry per stage rendered; refresh/late-join replays history by starting with `after=0`; polling stops on terminal project `status` (`DONE`/`FAILED`).
+- **Tests & edge cases:** late-joiner/refresh shows correct state (full history replay); FAILED renders error + retry; no runaway polling after terminal status.
+- **Review focus:** cursor-advance correctness; polling stops cleanly; no redundant re-renders on empty responses.
 
 **B5. Asset editing panels — images / voiceover / video (§5 regenerate*/revoice/reassemble, §9.2 DONE)**
 - **Contract:** Three shadcn/ui panels on the DONE project page: `<SceneGrid />` (per-image **Regenerate** + **Regenerate all**), per-scene narration/voice textarea (**Re-voice** + **Regenerate all voiceovers**), and `<VideoPlayer />` with Download + **Rebuild video** (highlighted when `stale=true`).
@@ -803,7 +847,7 @@ them into `script_agent` / the image provider per request — never via global e
 - **Keys encrypted at rest**; the encryption key comes from env/KMS and is **never** in the
   repo (the pre-commit hook still guards commits).
 - **API never returns raw keys**; UI input is masked and update-only.
-- **Keys never reach `JobLog`, SSE, or any log**; provider error messages are redacted before
+- **Keys never reach `JobLog` or any log**; provider error messages are redacted before
   persistence.
 - **Per-user isolation** (§4a) covers credentials + models — cross-user access returns 404.
 

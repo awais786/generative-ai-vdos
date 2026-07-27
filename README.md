@@ -359,24 +359,33 @@ Browser → GET /api/auth/logout → clears session + Cognito logout
 | `GET` | `/api/projects/{id}/` | Project detail (includes scenes) |
 | `PATCH` | `/api/projects/{id}/` | Update project |
 | `DELETE` | `/api/projects/{id}/` | Delete project |
-| `POST` | `/api/projects/{id}/approve/` | Approve plan → start generation |
+| `POST` | `/api/projects/{id}/approve/` | Approve plan → start generation (also retries a FAILED project) |
+| `POST` | `/api/projects/{id}/retry/` | Retry a FAILED project from the first incomplete stage |
+| `POST` | `/api/projects/{id}/approve-images/` | Approve generated images → proceed to voice + assembly (`IMAGE_REVIEW` gate) |
 | `POST` | `/api/projects/{id}/refine/` | Revise plan with a text instruction |
 | `GET` | `/api/projects/{id}/logs/?after={pk}` | Pipeline job logs (poll; `after` returns only rows newer than that id) |
-| `GET` | `/api/projects/{id}/events/` | SSE stream (live when Redis is configured) |
 | `POST` | `/api/projects/{id}/regenerate-images/` | Re-queue all scene images |
+| `POST` | `/api/projects/{id}/regenerate-voiceovers/` | Re-run all scene voiceovers |
 | `POST` | `/api/projects/{id}/reassemble/` | Rebuild final video from existing audio/images |
 | `GET` | `/api/projects/{id}/download/` | Download `final.mp4` |
 | `GET` | `/api/projects/{id}/scenes/` | List scenes |
 | `GET\|PATCH` | `/api/projects/{id}/scenes/{index}/` | Scene detail / update prompt or narration |
 | `POST` | `/api/projects/{id}/scenes/{index}/regenerate/` | Re-generate a single scene's image |
 | `POST` | `/api/projects/{id}/scenes/{index}/revoice/` | Re-generate a single scene's voiceover |
+| `GET` | `/api/projects/{id}/scenes/{index}/media-urls/` | Signed URL for scene image/video |
+| `GET` | `/api/projects/{id}/scenes/{index}/audio-urls/` | Signed URL for scene audio |
+| `GET\|POST\|DELETE` | `/api/models/` | User-scoped LLM model registry (list / create / delete; no update) |
 
 ### Running tests
 
 ```bash
-make test         # full suite (Django + pipeline)
-# or just Django:
-source .venv/bin/activate && cd backend && python manage.py test apps
+make test                              # full suite: Django backend + all pipeline tests
+
+# individually:
+cd backend && python manage.py test apps   # 22 backend modules (state machine, storage,
+                                           # signed URLs, API isolation, every Celery stage)
+python -m pytest tests/                    # 7 pipeline modules (expand, styles, animate flag,
+                                           # image provider selection, video batch, voiceover, isolation)
 ```
 
 ### Pre-commit hook (contributors)
