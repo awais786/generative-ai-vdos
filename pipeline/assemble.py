@@ -1,12 +1,16 @@
 """Stage 4: FFmpeg assembly — Ken Burns over stills, burned captions, music bed."""
 import json
+import logging
 import random
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import List, Optional
 
 from .schema import ShotPlan
+
+logger = logging.getLogger(__name__)
 
 FPS = 30
 
@@ -53,10 +57,29 @@ def _overlay_filter(text: Optional[str]) -> str:
             f"borderw=3:bordercolor=black@0.8:x=(w-text_w)/2:y=70")
 
 
-def _run(cmd: List[str], cwd: Optional[Path] = None) -> None:
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
+def _run(cmd: List[str], cwd: Optional[Path] = None, timeout: int = 15 * 60,
+         tag: str = "ffmpeg") -> float:
+    # timeout= so a deadlocked ffmpeg raises TimeoutExpired instead of blocking
+    # in a C call — otherwise Celery's soft-time-limit signal can't be delivered
+    # and the worker child eventually gets SIGKILL'd without cleanup.
+    # -benchmark makes ffmpeg print a `bench: utime=… stime=… rtime=…` line to
+    # stderr so we can tell CPU-bound from I/O-bound at a glance.
+    if cmd and cmd[0] == "ffmpeg":
+        cmd = [cmd[0], "-benchmark", *cmd[1:]]
+    t0 = time.perf_counter()
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        logger.error("assemble.timing tag=%s dt=%.2fs status=timeout",
+                     tag, time.perf_counter() - t0)
+        raise RuntimeError(f"ffmpeg timed out after {timeout}s:\n{' '.join(cmd)}") from exc
+    dt = time.perf_counter() - t0
+    bench = next((ln for ln in result.stderr.splitlines() if ln.startswith("bench:")), "")
     if result.returncode != 0:
+        logger.error("assemble.timing tag=%s dt=%.2fs status=fail %s", tag, dt, bench)
         raise RuntimeError(f"ffmpeg failed:\n{' '.join(cmd)}\n{result.stderr[-2000:]}")
+    logger.info("assemble.timing tag=%s dt=%.2fs %s", tag, dt, bench)
+    return dt
 
 
 def _duration(media: Path) -> float:
@@ -129,8 +152,10 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
     # Per-scene clip + that scene's voiceover. An animated clip from the
     # optional animate stage (video/scene_NN.mp4) is preferred — looped and
     # trimmed to the narration; otherwise Ken Burns over the still image.
+    t_total = time.perf_counter()
     scene_durations = []
     clip_paths = []
+    scenes_wall = 0.0
     for i in range(len(plan.scenes)):
         img = images_dir / f"scene_{i:02d}.png"
         vid = video_dir / f"scene_{i:02d}.mp4"
@@ -139,7 +164,7 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         dur = _duration(mp3) + 0.3  # small breath between scenes
         overlay = _overlay_filter(plan.scenes[i].on_screen_text)
         if vid.exists():
-            _run([
+            scenes_wall += _run([
                 "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(vid), "-i", str(mp3),
                 "-filter_complex",
                 f"[0:v]scale=1920:1080:force_original_aspect_ratio=increase,"
@@ -148,7 +173,7 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
                 "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100",
                 "-t", f"{dur:.3f}", str(clip),
-            ])
+            ], tag=f"scene[{i:02d}]:animated")
             source = "animated"
         else:
             frames = int(dur * FPS)
@@ -157,7 +182,7 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
             fade_d = min(0.30, dur * 0.12)
             fade_in  = f",fade=t=in:st=0:d={fade_d:.2f}"
             fade_out = f",fade=t=out:st={max(0.0, dur - fade_d):.3f}:d={fade_d:.2f}"
-            _run([
+            scenes_wall += _run([
                 "ffmpeg", "-y", "-loop", "1", "-framerate", str(FPS), "-i", str(img),
                 "-i", str(mp3),
                 "-filter_complex",
@@ -169,7 +194,7 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
                 "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-ar", "44100",
                 "-t", f"{dur:.3f}", str(clip),
-            ])
+            ], tag=f"scene[{i:02d}]:kb")
             source = f"ken burns #{i % len(_KB_MODES) + 1}"
         scene_durations.append(dur)
         clip_paths.append(clip)
@@ -179,30 +204,39 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
     concat_list = work_dir / "concat.txt"
     concat_list.write_text("\n".join(f"file '{p.resolve()}'" for p in clip_paths))
     raw = work_dir / "video_raw.mp4"
-    _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
-          "-c", "copy", str(raw)])
+    concat_wall = _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
+                        "-c", "copy", str(raw)], tag="concat")
 
     # Captions from edge-tts word timings.
     srt = work_dir / "captions.srt"
+    t_srt = time.perf_counter()
     _build_srt(audio_dir, scene_durations, srt)
+    srt_wall = time.perf_counter() - t_srt
 
     # Final pass: burn captions, mix music under the voiceover.
     final = work_dir / "final.mp4"
     sub_filter = (f"subtitles={srt.name}:force_style="
                   f"'FontSize=18,Bold=1,Outline=2,MarginV=40'")
     if music_path is not None:
-        _run([
+        final_wall = _run([
             "ffmpeg", "-y", "-i", str(raw.resolve()), "-stream_loop", "-1", "-i", str(music_path.resolve()),
             "-filter_complex",
             f"[0:v]{sub_filter}[v];[1:a]volume=0.12[m];"
             f"[0:a][m]amix=inputs=2:duration=first:dropout_transition=2[a]",
             "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "fast",
             "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(final.resolve()),
-        ], cwd=work_dir)
+        ], cwd=work_dir, tag="final:music")
     else:
-        _run(["ffmpeg", "-y", "-i", str(raw.resolve()), "-vf", sub_filter,
+        final_wall = _run(["ffmpeg", "-y", "-i", str(raw.resolve()), "-vf", sub_filter,
               "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
-              "-c:a", "copy", str(final.resolve())], cwd=work_dir)
+              "-c:a", "copy", str(final.resolve())], cwd=work_dir, tag="final:nomusic")
+
+    logger.info(
+        "assemble.summary scenes=%d total=%.2fs scenes_sum=%.2fs "
+        "concat=%.2fs srt=%.2fs final=%.2fs",
+        len(plan.scenes), time.perf_counter() - t_total,
+        scenes_wall, concat_wall, srt_wall, final_wall,
+    )
     return final
 
 
