@@ -1,5 +1,6 @@
 """Materialize a CLI-style work dir from DB + storage for FFmpeg assembly."""
 
+import logging
 import shutil
 import time
 from pathlib import Path
@@ -10,6 +11,8 @@ from apps.projects.models import Project
 from apps.projects.utils import build_shot_plan, get_work_dir
 from pipeline.schema import ShotPlan
 
+logger = logging.getLogger(__name__)
+
 
 def _local_source_path(field_file) -> Path | None:
     try:
@@ -18,7 +21,8 @@ def _local_source_path(field_file) -> Path | None:
         return None
 
 
-def _download_field(field_file, dest: Path) -> None:
+def _download_field(field_file, dest: Path) -> float:
+    """Copy a storage file to `dest`. Returns bytes actually copied (0 for in-place)."""
     if not field_file:
         raise FileNotFoundError("missing storage file")
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -27,11 +31,13 @@ def _download_field(field_file, dest: Path) -> None:
     if src_path is not None and src_path == dest:
         if not src_path.is_file() or src_path.stat().st_size == 0:
             raise FileNotFoundError(f"empty or missing file: {dest}")
-        return
+        return 0
     with field_file.open("rb") as src, dest.open("wb") as dst:
         shutil.copyfileobj(src, dst)
-    if dest.stat().st_size == 0:
+    size = dest.stat().st_size
+    if size == 0:
         raise FileNotFoundError(f"empty file after download: {dest}")
+    return size
 
 
 def materialize_work_dir(project: Project) -> tuple[Path, ShotPlan]:
@@ -41,6 +47,7 @@ def materialize_work_dir(project: Project) -> tuple[Path, ShotPlan]:
     (FileSystemStorage stores images at ``{work_dir}/images/…`` — copying a file
     onto itself truncates it to zero bytes).
     """
+    t_total = time.perf_counter()
     work_dir = get_work_dir(project) / "_assemble"
     images_dir = work_dir / "images"
     audio_dir = work_dir / "audio"
@@ -53,7 +60,10 @@ def materialize_work_dir(project: Project) -> tuple[Path, ShotPlan]:
     (work_dir / "shot_plan.json").write_text(plan.model_dump_json(indent=2))
 
     has_compose = False
+    files = 0
+    bytes_dl = 0
     for scene in project.scenes.order_by("index"):
+        t_scene = time.perf_counter()
         prefix = f"scene_{scene.index:02d}"
         if not scene.audio_path:
             raise FileNotFoundError(f"scene {scene.index} is missing audio_path")
@@ -62,9 +72,13 @@ def materialize_work_dir(project: Project) -> tuple[Path, ShotPlan]:
         # is rendered from the narration audio below. Just stage the audio.
         if scene.compose:
             has_compose = True
-            _download_field(scene.audio_path, audio_dir / f"{prefix}.mp3")
+            bytes_dl += _download_field(scene.audio_path, audio_dir / f"{prefix}.mp3")
+            files += 1
             if scene.words_path:
-                _download_field(scene.words_path, audio_dir / f"{prefix}.words.json")
+                bytes_dl += _download_field(scene.words_path, audio_dir / f"{prefix}.words.json")
+                files += 1
+            logger.info("materialize.timing scene=%d dt=%.2fs kind=compose",
+                        scene.index, time.perf_counter() - t_scene)
             continue
 
         if not scene.media_path:
@@ -72,20 +86,32 @@ def materialize_work_dir(project: Project) -> tuple[Path, ShotPlan]:
 
         ext = Path(scene.media_path.name).suffix.lower()
         if ext == ".mp4":
-            _download_field(scene.media_path, video_dir / f"{prefix}.mp4")
+            bytes_dl += _download_field(scene.media_path, video_dir / f"{prefix}.mp4")
         else:
-            _download_field(scene.media_path, images_dir / f"{prefix}.png")
+            bytes_dl += _download_field(scene.media_path, images_dir / f"{prefix}.png")
+        files += 1
 
-        _download_field(scene.audio_path, audio_dir / f"{prefix}.mp3")
+        bytes_dl += _download_field(scene.audio_path, audio_dir / f"{prefix}.mp3")
+        files += 1
         if scene.words_path:
-            _download_field(scene.words_path, audio_dir / f"{prefix}.words.json")
+            bytes_dl += _download_field(scene.words_path, audio_dir / f"{prefix}.words.json")
+            files += 1
+        logger.info("materialize.timing scene=%d dt=%.2fs kind=%s",
+                    scene.index, time.perf_counter() - t_scene, ext.lstrip(".") or "img")
+
+    logger.info(
+        "materialize.summary scenes=%d files=%d bytes=%d dt=%.2fs",
+        project.scenes.count(), files, bytes_dl, time.perf_counter() - t_total,
+    )
 
     # Render composition cards (Remotion) into video/scene_NN.mp4 from the staged
     # audio — assemble() then prefers these clips exactly like an animated scene.
     # Requires Node + the repo's remotion/ project on this worker host.
     if has_compose:
+        t_compose = time.perf_counter()
         from pipeline.compose import render_compositions
         render_compositions(plan, work_dir)
+        logger.info("materialize.compose dt=%.2fs", time.perf_counter() - t_compose)
 
     return work_dir, plan
 
