@@ -1,4 +1,5 @@
 import os
+from botocore.config import Config as BotoConfig
 from .base import *  # noqa: F401, F403
 from .base import env_bool, env_csv, require_cognito
 
@@ -44,6 +45,16 @@ STORAGES = {
             "file_overwrite": False,
             "querystring_auth": True,
             "querystring_expire": 3600,
+            # Tighter timeouts + adaptive retry so a stalled S3 connection
+            # fails in ~30s instead of the boto3 default 60s, avoiding the
+            # 2-min hangs we saw on first-run assembly when a parallel GET
+            # got stuck on a stale keep-alive after the prior PUT-heavy stages.
+            "client_config": BotoConfig(
+                connect_timeout=10,
+                read_timeout=30,
+                retries={"max_attempts": 4, "mode": "adaptive"},
+                max_pool_connections=20,
+            ),
         },
     },
     "staticfiles": {
