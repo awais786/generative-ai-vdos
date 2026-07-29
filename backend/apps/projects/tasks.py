@@ -352,6 +352,7 @@ def run_assemble_stage(self, project_id):
         # project doesn't sit in VIDEO_GENERATING when the hard limit SIGKILLs us.
         fail_project(project, project_id, Stage.ASSEMBLE,
                      RuntimeError(f"assemble exceeded soft time limit ({exc})"))
+        raise
     except Exception as exc:
         fail_project(project, project_id, Stage.ASSEMBLE, exc)
         raise

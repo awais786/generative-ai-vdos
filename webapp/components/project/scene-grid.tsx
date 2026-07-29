@@ -15,23 +15,14 @@ const STATUS_COLOR: Record<string, string> = {
   FAILED: '#f06a6a',
 }
 
-// The presigned URL's signature changes each time Django serializes it, but the
-// filename portion is stable per file. Key React/browser cache on the filename
-// so identical files always yield an identical src string, preventing the
-// re-fetch flicker every 3 s poll.
+// S3 presigned URLs change signature each render, but the filename is stable.
+// Extract it so the memo comparator can skip re-renders when only the signature
+// churns — otherwise the <img src> would swap every 3 s poll and flicker.
 function fileKey(url: string | undefined | null): string {
   if (!url) return ''
   const pathname = url.split('?')[0]
   const parts = pathname.split('/')
   return parts[parts.length - 1] || pathname
-}
-
-function stableSrc(url: string | undefined | null): string | undefined {
-  if (!url) return undefined
-  const key = fileKey(url)
-  if (!key) return url
-  const sep = url.includes('?') ? '&' : '?'
-  return `${url}${sep}v=${encodeURIComponent(key)}`
 }
 
 interface SceneCardProps {
@@ -40,11 +31,10 @@ interface SceneCardProps {
 
 const SceneCard = memo(
   function SceneCard({ scene }: SceneCardProps) {
-    const rawSrc =
+    const displaySrc =
       scene.media_status === 'DONE'
         ? scene.media_path || null
         : scene.preview_url || scene.media_path || null
-    const displaySrc = stableSrc(rawSrc)
 
     return (
       <div className="bg-[#1e222b] border border-[#2a2f3a] rounded-[10px] overflow-hidden">
