@@ -209,10 +209,6 @@ def run_video_stage(self, project_id, scene_index=None):
         logger.warning("Project %s not found, aborting video stage", project_id)
         return {"project_id": str(project_id)}
 
-    if not project.video_model:
-        fail_project(project, project_id, Stage.VIDEO, RuntimeError("No video model configured"))
-        return {"project_id": str(project_id)}
-
     if scene_index is not None:
         animated = list(Scene.objects.filter(
             project=project, index=scene_index, animate=True, compose__isnull=True))
@@ -222,6 +218,10 @@ def run_video_stage(self, project_id, scene_index=None):
 
     if not animated:
         publish_event(project_id, Stage.VIDEO, Level.INFO, "No animated scenes — skipping")
+        return {"project_id": str(project_id)}
+
+    if not project.video_model:
+        fail_project(project, project_id, Stage.VIDEO, RuntimeError("No video model configured"))
         return {"project_id": str(project_id)}
 
     llm = project.video_model
@@ -277,6 +277,7 @@ def run_voice_stage(self, project_id, scene_index=None):
         logger.warning("Project %s not found, aborting voice stage", project_id)
         return {"project_id": str(project_id), "scene_index": scene_index}
     if project.status == Status.FAILED:
+        logger.warning("Voice stage skipped — project %s already FAILED", project_id)
         return {"project_id": str(project_id), "scene_index": scene_index}
 
     if scene_index is None:
@@ -329,6 +330,7 @@ def run_assemble_stage(self, project_id):
         logger.warning("Project %s not found, aborting assemble stage", project_id)
         return {"project_id": str(project_id)}
     if project.status == Status.FAILED:
+        logger.warning("Assemble stage skipped — project %s already FAILED", project_id)
         return {"project_id": str(project_id)}
     publish_event(project_id, Stage.ASSEMBLE, Level.INFO, "Assembling final video")
 
