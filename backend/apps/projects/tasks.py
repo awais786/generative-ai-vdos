@@ -2,6 +2,7 @@ import logging
 import shutil
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.db import transaction
 
 from apps.storage import storage_provider
@@ -346,6 +347,12 @@ def run_assemble_stage(self, project_id):
         publish_event(project_id, Stage.ASSEMBLE, Level.INFO, "Assembly complete")
     except (ConnectionError, TimeoutError) as exc:
         handle_transient_error(self, project, project_id, Stage.ASSEMBLE, exc)
+    except SoftTimeLimitExceeded as exc:
+        # Soft limit fires 5 min before hard limit — mark FAILED here so the
+        # project doesn't sit in VIDEO_GENERATING when the hard limit SIGKILLs us.
+        fail_project(project, project_id, Stage.ASSEMBLE,
+                     RuntimeError(f"assemble exceeded soft time limit ({exc})"))
+        raise
     except Exception as exc:
         fail_project(project, project_id, Stage.ASSEMBLE, exc)
         raise
