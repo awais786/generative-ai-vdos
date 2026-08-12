@@ -17,6 +17,15 @@ Preflight reports **configuration, not liveness**. An entry marked
 "configured" means the key is present, not that it works. Say so when you
 report it, so a first-call auth failure is not a surprise.
 
+To actually verify the OpenAI key before spending:
+
+    scripts/check-openai-key
+
+It authenticates via `GET /v1/models`, which costs nothing and generates
+nothing, and confirms the plan and image models are available to the account.
+Run it when preflight says "configured" but a call fails with a 401 — a revoked
+or rotated key reads as configured and fails only on first use.
+
 ## Rule Zero — every video goes through five stages
 
     python -m pipeline.refine "idea"     # stage 1 — shot plan

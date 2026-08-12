@@ -45,7 +45,19 @@ finished video:
 
 Show the plan — scene count, the narration beats, the characters. Wait.
 
-Revise with `python -m pipeline.refine --change "..."`. Do not hand-edit
-`shot_plan.json`: editing skips auto-polish and consistency review.
+Revise **narrative content** — narration, scene order, characters, what a scene
+depicts — with `python -m pipeline.refine --change "..."`. Do not hand-edit
+those: editing skips auto-polish and consistency review, which is what keeps
+characters and story beats coherent across scenes.
+
+**Rendering hints are different and may be edited directly**: `negative_prompt`,
+`outfit`, `voice`, `animate`. They are per-scene knobs the polish pass does not
+reason about, and `--change` would regenerate the whole plan — re-rolling scenes
+that were already approved. After editing one, regenerate only the affected
+scene (`--scene N`), not the stage.
+
+The common case: an image comes back with an unwanted subject or mood. That is
+an image-level defect, not a plan-level one. Add the unwanted traits to that
+scene's `negative_prompt` and regenerate that scene alone.
 
 Advance to stage 2 only after explicit approval.
