@@ -55,11 +55,21 @@ def print_plan(plan: ShotPlan, work_dir: Path) -> None:
     print(line)
     print(f"plan file : {work_dir / 'shot_plan.json'}")
     print()
+    # Only list stages that actually run. pipeline.video is disabled by policy
+    # (it spends DashScope credit), and compose must appear whenever the plan
+    # has a card scene — pipeline.images skips those, so assemble would fail
+    # with "no image or clip for scene(s) N" and point at the one stage that
+    # can never fix it.
+    has_compose = any(s.compose for s in plan.scenes)
     print("next steps:")
     print(f"  revise : python -m pipeline.refine {work_dir} --change \"<your feedback>\"")
     print(f"  images : python -m pipeline.images {work_dir}")
-    print(f"  then   : python -m pipeline.video {work_dir} && "
-          f"python -m pipeline.voiceover {work_dir} && python -m pipeline.assemble {work_dir}")
+    print(f"  voice  : python -m pipeline.voiceover {work_dir}")
+    if has_compose:
+        n = sum(1 for s in plan.scenes if s.compose)
+        print(f"  compose: python -m pipeline.compose {work_dir}"
+              f"   # required — {n} card scene(s) in this plan")
+    print(f"  final  : python -m pipeline.assemble {work_dir}")
 
 
 def main() -> None:
