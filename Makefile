@@ -3,7 +3,7 @@ VENV   := .venv
 PY     := $(VENV)/bin/python
 MANAGE := $(PY) backend/manage.py
 
-.PHONY: help install install-web sync migrate backend frontend prod test example clean-example
+.PHONY: help install install-web sync migrate backend frontend prod test example clean-example preflight
 
 help:
 	@echo "make install       - full setup: ffmpeg + pipeline deps + .env"
@@ -16,6 +16,7 @@ help:
 	@echo "make test          - run the test suite"
 	@echo "make example       - run the bundled example end-to-end (free, no keys needed)"
 	@echo "make clean-example - remove the example's generated output"
+	@echo "make preflight     - report what pipeline capabilities work on this machine"
 
 install: ffmpeg sync env
 	@echo ""
@@ -93,6 +94,9 @@ endif
 env:
 	@test -f .env || (cp .env.example .env && echo "created .env - add your keys")
 	@test ! -f .env || echo ".env: OK"
+
+preflight: $(VENV)
+	$(PY) -m pipeline.registry
 
 # Uses the free placeholder image backend - works with no keys.
 # With DASHSCOPE_API_KEY set, drop --backend placeholder for real images.
