@@ -16,6 +16,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from .. import report
 from ..schema import ShotPlan
 
 FPS = 30
@@ -112,6 +113,12 @@ def render_compositions(plan: ShotPlan, work_dir: Path) -> list[Path]:
     props_dir = work_dir / "compose"
     props_dir.mkdir(parents=True, exist_ok=True)
 
+    print(report.row("compose", "remotion",
+                     f"local render, free, {report.plural(len(compose_scenes), 'card scene')}"))
+    mood = (plan.music_mood or "").strip().lower()
+    if mood not in MOOD_PALETTES:
+        print(report.note_line(
+            f"palette: default (no palette for mood '{plan.music_mood}')"))
     palette = _palette_for(plan)
     entry = "src/index.ts"
     rendered: list[Path] = []

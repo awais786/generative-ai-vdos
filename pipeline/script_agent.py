@@ -202,6 +202,34 @@ def default_model() -> str:
     return model
 
 
+# What a plan call costs the user, per LLM_PROVIDER value. A figure appears here
+# only where the repo already states one — README.md's key table measures
+# ~$0.001/plan for OpenAI/gpt-4o-mini, and nothing measures the Anthropic or
+# Gemini models, so those say only "paid". Never extrapolate a number: a made-up
+# figure a user trusts is worse than no figure. "free (company proxy)" comes from
+# this module's own docstring ("the first configured key wins (free proxy first)").
+_PLAN_COST = {
+    "openai": "paid API, ~$0.001/plan",
+    "anthropic": "paid API",
+    "claude": "paid API",
+    "gemini": "paid API",
+    "google": "paid API",
+    "litellm": "free (company proxy)",
+    "libra": "free (company proxy)",
+    "company": "free (company proxy)",
+}
+
+
+def plan_report(model: str, forced: bool = False) -> list[str]:
+    """Header lines for the plan stage: which model, from where, at what cost."""
+    from . import report
+
+    provider = os.environ.get("LLM_PROVIDER", "").strip().lower()
+    source = "forced via --model" if forced else f"via LLM_PROVIDER={provider or 'unset'}"
+    cost = _PLAN_COST.get(provider, "cost depends on provider")
+    return [report.row("plan", model, f"{source}, {cost}")]
+
+
 _PROVIDER_SDK = {
     "openai":    ("openai",    "OPENAI_API_KEY",    None),
     "anthropic": ("anthropic", "ANTHROPIC_API_KEY",  None),

@@ -84,6 +84,7 @@ def main() -> None:
                         help="Style preset name, 'list' to show all, or "
                              "'custom:your description' (.env: VIDEO_STYLE)")
     args = parser.parse_args()
+    forced_model = args.model is not None
     if not args.model:
         from .script_agent import default_model
         args.model = default_model()  # errors if LLM_PROVIDER not set
@@ -100,13 +101,23 @@ def main() -> None:
         is_existing_plan = (in_path / "shot_plan.json").is_file()
     except OSError:  # long rough-text input exceeds filesystem name limits
         is_existing_plan = False
+
+    # Header only when an LLM call is actually coming — viewing a plan is free.
+    if not is_existing_plan or args.change or args.polish:
+        from . import report
+        from .script_agent import plan_report
+        for line in plan_report(args.model, forced=forced_model):
+            print(line)
+        if args.style:
+            print(report.note_line(f"style preset: {args.style} (--style / VIDEO_STYLE)"))
+
     if is_existing_plan:
         # Existing plan: view, or revise with --change.
         work_dir = in_path
         plan = ShotPlan.model_validate_json((work_dir / "shot_plan.json").read_text())
         if args.change:
             from .script_agent import revise_shot_plan
-            print(f"revising plan ({args.model})...")
+            print("revising plan...")
             plan = revise_shot_plan(plan, args.change, model=args.model)
             (work_dir / "shot_plan.json").write_text(plan.model_dump_json(indent=2))
     else:
@@ -118,7 +129,7 @@ def main() -> None:
 
         from .run import slugify
         from .script_agent import generate_shot_plan
-        print(f"generating plan ({args.model})...")
+        print("generating plan...")
         plan = generate_shot_plan(args.input, model=args.model, style=style)
         # Folder named after the generated title, e.g. output/the-thief-act/
         name = args.name or slugify(plan.title)[:40].strip("-") or time.strftime("%Y%m%d-%H%M%S")
