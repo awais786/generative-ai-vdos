@@ -111,16 +111,14 @@ def _edit_model() -> str:
 
 class QwenImageProvider(ImageProvider):
     name = "qwen-image"
-    requires = "DASHSCOPE_API_KEY + QWEN_IMAGE_MODEL"
-
-    def available(self) -> bool:
-        # Both, not the key alone: _gen_model() raises without QWEN_IMAGE_MODEL,
-        # and this provider is first in PROVIDERS — so a key-only check makes
-        # auto-pick choose a backend that then dies at generation time, after
-        # the plan has already been paid for. Keep this in step with whatever
-        # generate() actually requires.
-        return bool(os.environ.get("DASHSCOPE_API_KEY")
-                    and os.environ.get("QWEN_IMAGE_MODEL", "").strip())
+    aliases = ("qwen", "dashscope")
+    # Both, not the key alone: _gen_model() raises without QWEN_IMAGE_MODEL, and
+    # this provider is first in PROVIDERS — so a key-only check would make
+    # auto-pick choose a backend that then dies at generation time.
+    env_required = ("DASHSCOPE_API_KEY", "QWEN_IMAGE_MODEL")
+    model_env = "QWEN_IMAGE_MODEL"
+    cost = "free while the Model Studio quota lasts"
+    can_edit = True
 
     def _post(self, model: str, content: list,
               parameters: dict, api_key=None, on_preview_url=None) -> bytes:

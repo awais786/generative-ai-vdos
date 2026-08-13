@@ -21,10 +21,13 @@ def _model() -> str:
 
 class GptImageProvider(ImageProvider):
     name = "gpt-image-1"
-    requires = "OPENAI_API_KEY"
-
-    def available(self) -> bool:
-        return bool(os.environ.get("OPENAI_API_KEY"))
+    aliases = ("openai", "gpt")
+    env_required = ("OPENAI_API_KEY",)
+    model_env = "OPENAI_IMAGE_MODEL"
+    # From this module's docstring; generate() hardcodes quality="low".
+    cost = "PAID ~$0.01-0.02/image"
+    paid = True
+    can_edit = True
 
     def generate(self, prompt: str, query: str | None = None,
                  negative: str | None = None, api_key=None,

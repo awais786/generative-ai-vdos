@@ -12,10 +12,15 @@ logger = logging.getLogger(__name__)
 
 class FluxProvider(ImageProvider):
     name = "flux-schnell"
-    requires = "REPLICATE_API_TOKEN (+ pip install replicate)"
+    aliases = ("flux", "replicate")
+    env_required = ("REPLICATE_API_TOKEN",)
+    extra_requires = "pip install replicate"
+    cost = "free tier, then ~$0.003/image"
 
     def available(self) -> bool:
-        if not os.environ.get("REPLICATE_API_TOKEN"):
+        # Overridden for the one non-environment prerequisite. super() still
+        # does the env_required check, so the declaration stays authoritative.
+        if not super().available():
             return False
         try:
             import replicate  # noqa: F401

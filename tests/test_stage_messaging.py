@@ -218,6 +218,7 @@ class FailingEditProvider:
 
     name = "fake-provider"
     requires = "FAKE_API_KEY"
+    can_edit = True   # this double exists to exercise the failing-edit path
 
     def available(self):
         return True
