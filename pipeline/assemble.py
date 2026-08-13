@@ -490,13 +490,55 @@ class MusicChoice:
         return self.source == "mood"
 
 
+#: Moods the LLM writes that the library does not stock, mapped to ones it does.
+#: Measured across 30 plans in output/: `inspiring` is the MOST common mood (9
+#: videos) and music/inspiring/ has never existed, so all nine drew a random
+#: track from an unrelated folder — a bee documentary scored with a heist theme.
+#: With melancholic and mysterious that is 12 of 30 videos.
+#:
+#: Aliasing rather than adding folders: the model writes whatever adjective fits
+#: the video, and no library covers the whole language. A real folder always
+#: wins over its alias, so stocking music/inspiring/ later just works.
+MOOD_ALIASES = {
+    "inspiring": "upbeat",
+    "inspirational": "upbeat",
+    "uplifting": "upbeat",
+    "hopeful": "upbeat",
+    "happy": "upbeat",
+    "cheerful": "upbeat",
+    "melancholic": "sad",
+    "melancholy": "sad",
+    "somber": "sad",
+    "reflective": "calm",
+    "peaceful": "calm",
+    "gentle": "calm",
+    "mysterious": "dramatic",
+    "tense": "dramatic",
+    "epic": "dramatic",
+    "suspenseful": "dramatic",
+}
+
+
+def resolve_mood(mood: str, music_root: Path) -> str:
+    """The folder to draw from: the mood itself when stocked, else its alias.
+
+    Checked in that order so adding music/<mood>/ later takes precedence
+    without touching the table.
+    """
+    asked = (mood or "").strip().lower()
+    if (music_root / asked).is_dir() if asked else False:
+        return asked
+    return MOOD_ALIASES.get(asked, asked)
+
+
 def choose_music(music_root: Path, mood: str) -> MusicChoice:
     """Pick a random track from music/<mood>/, falling back to any track.
 
     Same behaviour as before — some music beats no music — but the caller can
     now tell a real mood match apart from a random fallback (see music_report).
     """
-    mood_dir = music_root / mood
+    resolved = resolve_mood(mood, music_root)
+    mood_dir = music_root / resolved
     mood_dir_exists = mood_dir.is_dir()
     moods = tuple(sorted(
         d.name for d in music_root.iterdir()
