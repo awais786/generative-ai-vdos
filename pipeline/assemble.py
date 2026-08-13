@@ -36,12 +36,37 @@ _KB_MODES = [
     ("1+0.0008*on",    "iw-iw/zoom",              "ih-ih/zoom"),
 ]
 
-# First present font is used for on_screen_text overlays.
-_FONT = next((f for f in [
+# First present font is used for on_screen_text overlays. When none of these
+# exists, _overlay_filter returns '' and every overlay silently disappears from
+# the finished video — so a platform missing from this list loses content
+# without raising. assemble() warns when that happens.
+_FONT_CANDIDATES = [
+    # macOS
     "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     "/System/Library/Fonts/Helvetica.ttc",
+    # Linux
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-] if Path(f).exists()), None)
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    # Windows
+    r"C:\Windows\Fonts\arialbd.ttf",
+    r"C:\Windows\Fonts\segoeuib.ttf",
+    r"C:\Windows\Fonts\arial.ttf",
+]
+_FONT = next((f for f in _FONT_CANDIDATES if Path(f).exists()), None)
+
+
+def _font_arg(path: str) -> str:
+    r"""Font path as ffmpeg's filtergraph parser needs it.
+
+    ffmpeg parses the filter string itself, so a Windows path breaks it twice:
+    ':' separates filter options and '\' starts an escape. Forward slashes with
+    an escaped drive colon is the form ffmpeg accepts on Windows, and it leaves
+    POSIX paths untouched.
+    """
+    path = path.replace("\\", "/")
+    if len(path) > 1 and path[1] == ":":  # C:/... -> C\:/...
+        path = f"{path[0]}\\:{path[2:]}"
+    return path
 
 
 def _hex_to_ass(hex_colour: str) -> str:
@@ -108,7 +133,7 @@ def _overlay_filter(text: Optional[str], style: dict | None = None) -> str:
     size = text_cfg.get("overlay_size", 58)
     border = text_cfg.get("overlay_border", 3)
     colour = _hex_to_drawtext(palette["fg"]) if palette.get("fg") else "white"
-    return (f",drawtext=fontfile='{_FONT}':text='{esc}':fontsize={size}:"
+    return (f",drawtext=fontfile='{_font_arg(_FONT)}':text='{esc}':fontsize={size}:"
             f"fontcolor={colour}:borderw={border}:bordercolor=black@0.8:"
             f"x=(w-text_w)/2:y=70")
 
@@ -197,7 +222,8 @@ def _subtitle_filter(rel_path: str, srt_path: Path, style: dict | None = None) -
 
 def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) -> Path:
     if shutil.which("ffmpeg") is None:
-        raise RuntimeError("ffmpeg not found — install it with: brew install ffmpeg")
+        from .registry import _ffmpeg_hint  # local: avoids a circular import
+        raise RuntimeError(f"ffmpeg not found — install it with: {_ffmpeg_hint()}")
 
     # The per-scene ffmpeg calls run with cwd=work_dir so libass resolves the
     # SRT from a clean relative path. That makes every OTHER path passed to
@@ -233,6 +259,17 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
     # Per-scene clip + that scene's voiceover. Captions are burned in *here*
     # (per-scene SRT with local timings) so the final pass can stream-copy
     # instead of doing a full re-encode of the concatenated video.
+    # Without a font, _overlay_filter returns '' and every overlay disappears
+    # from the finished video without raising anything. Say so once, up front,
+    # rather than letting the user discover it on playback.
+    if _FONT is None:
+        wanted = sum(1 for s in plan.scenes if s.on_screen_text and not s.compose)
+        if wanted:
+            print(report.warning(
+                f"no usable font found — {report.plural(wanted, 'on-screen overlay')} "
+                f"will not be drawn. Install a font from _FONT_CANDIDATES "
+                f"(assemble.py) or the captions-only video is what you get."))
+
     t_total = time.perf_counter()
     clip_paths = []
     scenes_wall = 0.0

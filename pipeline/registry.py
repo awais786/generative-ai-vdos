@@ -175,6 +175,10 @@ def _ffmpeg_hint() -> str:
     if sys.platform == "darwin":
         return ("brew install ffmpeg-full && brew link --overwrite ffmpeg-full "
                 "(plain Homebrew ffmpeg has no libass)")
+    if sys.platform == "win32":
+        # Windows fell through to the Linux branch and was told to run apt-get.
+        # The gyan.org build ships libass, which the burned-in captions need.
+        return "winget install Gyan.FFmpeg (that build includes libass)"
     return "sudo apt-get install -y ffmpeg"
 
 

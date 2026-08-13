@@ -32,11 +32,14 @@ Turn a rough idea (or a full script) into a finished, narrated 1080p video — a
 
 ## Requirements
 
-- **macOS or Linux** with Python 3.13+
+- **macOS, Linux or Windows** with Python 3.13+
 - **FFmpeg with libass** (for burned-in captions):
   - macOS: `brew install ffmpeg-full && brew link --overwrite ffmpeg-full`
     (plain `ffmpeg` from Homebrew lacks the `subtitles` filter)
   - Debian/Ubuntu: `sudo apt install ffmpeg` (includes libass)
+  - Windows: `winget install Gyan.FFmpeg` (that build includes libass)
+
+`make preflight` checks all of this and prints what is missing.
 
 ## Installation
 
@@ -63,6 +66,36 @@ pip install -r requirements.txt
 cp .env.example .env   # then edit it and add your keys
 # (the pipeline auto-loads .env — no manual sourcing needed)
 ```
+
+</details>
+
+<details>
+<summary>Windows setup (no <code>make</code>)</summary>
+
+`make` is not standard on Windows and the Makefile assumes a POSIX shell, so run
+the steps directly. Everything else — the pipeline, edge-tts, Remotion, `uv` — is
+cross-platform.
+
+```powershell
+winget install Gyan.FFmpeg        # ffmpeg with libass, for burned-in captions
+winget install astral-sh.uv       # or: pip install uv
+
+git clone https://github.com/awais786/generative-ai-vdos.git
+cd generative-ai-vdos
+uv sync --all-extras
+copy .env.example .env            # then edit it and add your keys
+
+.venv\Scripts\activate            # note: Scripts\, not bin/
+python -m pipeline.registry       # preflight — confirms ffmpeg, libass and your keys
+```
+
+Then use the stage commands exactly as documented below — `python -m pipeline.refine "..."`
+and so on. The `make` targets are conveniences only; each one just runs the
+equivalent `python -m ...` command.
+
+Text overlays need a system font. `C:\Windows\Fonts\arialbd.ttf` is used when
+present; if no font from `_FONT_CANDIDATES` in `pipeline/assemble.py` is found,
+assembly warns and the overlays are skipped while captions still render.
 
 </details>
 
