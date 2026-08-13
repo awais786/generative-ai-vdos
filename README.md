@@ -14,7 +14,7 @@ Turn a rough idea (or a full script) into a finished, narrated 1080p video — a
    review gates: iterate on the plan, then inspect images, before any video credit is spent
 ```
 
-**Cost per video:** ~$0.001 (script) + $0 images (Qwen free quota) + $0 voice — or **$0 end-to-end in placeholder mode**. Optional animation: free trial credit, then ~$0.07–0.10 per 5s clip at our settings (wan2.2-i2v-flash, 720P; pricier Wan tiers go up to ~$0.25 — exact rates in the Model Studio console).
+**Cost per video:** ~$0.001 (script) + images (see below) + $0 voice — or **$0 end-to-end in placeholder mode**. Optional animation: free trial credit, then ~$0.07–0.10 per 5s clip at our settings (wan2.2-i2v-flash, 720P; pricier Wan tiers go up to ~$0.25 — exact rates in the Model Studio console).
 
 ## Features
 
@@ -105,7 +105,7 @@ assembly warns and the overlays are skipped while captions still render.
 |---|---|---|---|
 | `OPENAI_API_KEY` | Shot plan (gpt-4o-mini) + images (gpt-image-1, never auto-selected — requires explicit `--backend gpt-image-1`) | [platform.openai.com](https://platform.openai.com/api-keys) | ~$0.001/plan, ~$0.01–0.02/image |
 | `ANTHROPIC_API_KEY` | Shot plan (Claude) — alternative to OpenAI | [console.anthropic.com](https://console.anthropic.com/) | ~$0.001/plan |
-| `DASHSCOPE_API_KEY` **+ `QWEN_IMAGE_MODEL`** | Images (`qwen-image`, free quota, tried first) + animation (Wan i2v). **Both are required** — the model id has no default, and with the key alone the backend reports unavailable rather than failing mid-run | [Alibaba Model Studio](https://modelstudio.console.alibabacloud.com) — **pick the Singapore region**; new accounts get free image quota and ~1,650s of video credit (90 days) | free quota, then ~$0.02/image, ~$0.07–0.10/clip |
+| `DASHSCOPE_API_KEY` **+ `QWEN_IMAGE_MODEL`** | Images (`qwen-image`, tried first) + animation (Wan i2v). **Both are required** — the model id has no default, and with the key alone the backend reports unavailable rather than failing mid-run | [Alibaba Model Studio](https://modelstudio.console.alibabacloud.com) — **pick the Singapore region**; the free developer API ended April 2026; a limited onboarding trial and ~1,650s of video credit remain | trial quota only (the free developer API ended April 2026), then ~$0.025/image; ~$0.07–0.10/clip |
 | `REPLICATE_API_TOKEN` | Images via Flux Schnell (free tier, tried second; also `pip install replicate`) | [replicate.com](https://replicate.com/) | ~$0.003/image |
 | `PEXELS_API_KEY` | Free stock photos instead of AI images | [pexels.com/api](https://www.pexels.com/api/) | free |
 
@@ -191,7 +191,7 @@ python -m pipeline.auto "topic"                       # prompt in, final.mp4 out
 python -m pipeline.run  "topic" --approve --animate   # same chain, with flags (animation, --until, etc.)
 ```
 
-`pipeline.auto` runs the whole chain (plan + auto-polish + consistency review → images → voiceover → assemble) with the review gate pre-approved and free defaults (qwen images, no animation); extra flags pass through. `pipeline.run` is the same runner but keeps a review gate after the plan (omit `--approve` to stop there), supports `--until <stage>` and `--animate`, and resumes from `state.json` if interrupted.
+`pipeline.auto` runs the whole chain (plan + auto-polish + consistency review → images → voiceover → assemble) with the review gate pre-approved and the standard defaults (qwen images, no animation); extra flags pass through. `pipeline.run` is the same runner but keeps a review gate after the plan (omit `--approve` to stop there), supports `--until <stage>` and `--animate`, and resumes from `state.json` if interrupted.
 
 ## How it works — what each stage actually does
 
@@ -201,7 +201,7 @@ them. Nothing is hidden — every intermediate artifact can be opened and inspec
 | Stage | Tool | Input → Output | What happens |
 |---|---|---|---|
 | 1. Shot plan | gpt-4o-mini (or Claude) | rough text → `shot_plan.json` | An LLM breaks the idea into scenes: narration line, image description, motion, voice per scene. This JSON is the single source of truth for everything downstream. ~$0.001. |
-| 2. Images | Qwen / Flux / Pexels / gpt-image-1 | prompts → `images/scene_NN.png` | For each scene, `style_prefix + image_prompt` (with `{character}` placeholders expanded) goes to an image AI, which paints one still frame. Three-layer negative merging: global_negative + character negatives + scene.negative_prompt. Free on Qwen quota. |
+| 2. Images | Qwen / Flux / Pexels / gpt-image-1 | prompts → `images/scene_NN.png` | For each scene, `style_prefix + image_prompt` (with `{character}` placeholders expanded) goes to an image AI, which paints one still frame. Three-layer negative merging: global_negative + character negatives + scene.negative_prompt. Image cost depends on the backend — see the key table above. |
 | 2.5 Animate | Wan (DashScope) — **DISABLED by default** | still + motion text → `video/scene_NN.mp4` | Wan keeps the people/background from the still and imagines the next ~5 seconds of movement, frame by frame. The costly step — review images first. A failed scene just stays a still. To enable: uncomment `pipeline/video/__main__.py`. |
 | 3. Voiceover | edge-tts (free) | narration → `audio/scene_NN.mp3` + `.words.json` | Microsoft TTS speaks each line in the scene's voice, and streams back the millisecond each word is spoken — that's how subtitles sync perfectly without any speech recognition. |
 | 4. Music | none (just a file) | `music/<mood>/*.mp3` | A track matching the plan's mood is picked (or `--music <file>`); it's mixed in during assembly. |

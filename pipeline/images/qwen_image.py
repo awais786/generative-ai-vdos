@@ -1,8 +1,14 @@
 """Qwen text-to-image via Alibaba Model Studio (DashScope SDK).
 
 Uses the same DASHSCOPE_API_KEY (and optional DASHSCOPE_API_URL workspace
-endpoint) as the Wan video backend. Model Studio's new-user free quota covers
-the qwen-image models, so images are $0 while it lasts.
+endpoint) as the Wan video backend.
+
+NOT reliably free. Model Studio's free developer quota ended in April 2026;
+what remains is a limited onboarding trial. After it, qwen-image bills roughly
+¥0.18/image (~$0.025) — more than gpt-image-1 at low quality. Rates vary by
+variant (qwen-image-plus is cheaper) and region, so treat the console as
+authoritative. This matters because this provider is first in PROVIDERS and is
+auto-picked: a lapsed quota means a bare run silently spends.
 """
 import base64
 import io
@@ -117,7 +123,7 @@ class QwenImageProvider(ImageProvider):
     # auto-pick choose a backend that then dies at generation time.
     env_required = ("DASHSCOPE_API_KEY", "QWEN_IMAGE_MODEL")
     model_env = "QWEN_IMAGE_MODEL"
-    cost = "free while the Model Studio quota lasts"
+    cost = "trial quota, then ~$0.025/image"
     can_edit = True
 
     def _post(self, model: str, content: list,

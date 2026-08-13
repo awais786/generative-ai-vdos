@@ -40,7 +40,7 @@ uv sync                                    # install/update deps (creates .venv 
 source .venv/bin/activate                  # activate venv (or prefix commands with `uv run`)
 python -m pipeline.refine "idea"           # plan + auto-polish (stage 1, ~$0.001)
 python -m pipeline.refine --change "..."   # revise latest plan
-python -m pipeline.images                  # stage 2 (free via qwen)
+python -m pipeline.images                  # stage 2 (qwen; ~$0.025/image after the trial quota)
 python -m pipeline.video                   # stage 2.5 — DISABLED by default (costs money) — uncomment pipeline/video/__main__.py to re-enable
 python -m pipeline.voiceover               # stage 3 (free)
 python -m pipeline.compose                 # stage 3.5 (free, Remotion; no-op if no compose scenes)
@@ -71,11 +71,14 @@ written below.
   the limited free credit (~1,650s per account, ~5s/scene). Same for adding paid
   backends to a run.
 - **gpt-image-1 is never auto-selected** — requires explicit `--backend gpt-image-1`.
-  Qwen (free) is always the default first-choice image backend.
+  Qwen is the default first-choice image backend, but it is no longer free
+  (~$0.025/image after the trial quota) — announce its cost like any other.
 - **`flux-schnell` bills past its free tier** (~$0.003/image) and *is* auto-pickable
   and reachable through the per-scene fallback chain — so a run announced as free
   can spend there if `REPLICATE_API_TOKEN` is set.
-- Images via `qwen-image` and plans via `gpt-4o-mini` are effectively free; still,
+- Plans via `gpt-4o-mini` are effectively free (~$0.001). Images are NOT: qwen's
+  free developer quota ended April 2026 and it now bills ~$0.025/image, above
+  gpt-image-1. Announce the cost before generating; still,
   show the user the plan/images at review gates before generating downstream assets.
 - The user reviews artifacts between stages by preference: plan → images → the rest.
 
@@ -122,9 +125,15 @@ announce/approve protocol is in [`AGENT_GUIDE.md`](AGENT_GUIDE.md).
   uncomment without the user explicitly asking — it spends DashScope credit.
 - **Auto-polish and consistency_review run automatically** on every new plan in both
   `refine.py` and `run.py`. Do not add manual `--polish` calls in scripts.
-- **Provider order: Qwen first (free), then Flux (free tier), then Pexels, then
-  placeholder, gpt-image-1 LAST.** gpt-image-1 is only reachable via explicit
-  `--backend gpt-image-1`.
+- **Provider order: Qwen first, then Flux, then Pexels, then placeholder;
+  gpt-image-1 and gemini-image LAST.** The paid ones are reachable only via an
+  explicit `--backend` (never `IMAGE_BACKEND`). **This order no longer tracks
+  real cost** and is kept because changing pipeline defaults is a money-policy
+  decision for the user, not a refactor: qwen's free developer quota ended
+  April 2026 and it now bills ~$0.025/image, above gpt-image-1's ~$0.01-0.02,
+  while Flux at ~$0.003 is the cheapest generator and sits second. Do not
+  describe the auto-picked backend as free — quote the provider's `cost`
+  string, which is the single source (see `pipeline/images/base.py`).
 - Wan model/resolution/duration are **hardcoded constants** in `pipeline/video/wan.py`
   (wan2.2-i2v-flash, 720P, 5s) by user decision — don't make them env vars.
 - macOS needs `ffmpeg-full` (plain Homebrew ffmpeg lacks libass → no `subtitles`
