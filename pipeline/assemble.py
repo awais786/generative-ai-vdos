@@ -138,6 +138,14 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg not found — install it with: brew install ffmpeg")
 
+    # The per-scene ffmpeg calls run with cwd=work_dir so libass resolves the
+    # SRT from a clean relative path. That makes every OTHER path passed to
+    # ffmpeg relative to work_dir too, so a relative work_dir sends ffmpeg
+    # looking for work_dir/work_dir/images/... Resolve here, at the boundary,
+    # rather than in main(): the celery path already passes an absolute path,
+    # and resolving once protects every caller.
+    work_dir = Path(work_dir).resolve()
+
     images_dir = work_dir / "images"
     video_dir = work_dir / "video"
     audio_dir = work_dir / "audio"
