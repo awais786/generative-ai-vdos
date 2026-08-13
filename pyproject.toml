@@ -24,6 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 replicate = ["replicate>=0.32"]
+gemini = ["google-genai>=1.0"]
 faceswap = [
     "insightface>=0.7",
     "onnxruntime>=1.16",

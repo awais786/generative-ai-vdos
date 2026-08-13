@@ -16,10 +16,9 @@ logger = logging.getLogger(__name__)
 
 class PexelsProvider(ImageProvider):
     name = "pexels"
-    requires = "PEXELS_API_KEY"
-
-    def available(self) -> bool:
-        return bool(os.environ.get("PEXELS_API_KEY"))
+    aliases = ("stock",)
+    env_required = ("PEXELS_API_KEY",)
+    cost = "free (stock photos)"
 
     def generate(self, prompt: str, query: str | None = None,
                  negative: str | None = None, api_key=None,

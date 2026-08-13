@@ -148,14 +148,18 @@ def test_plan_report_says_when_the_model_was_forced(monkeypatch):
     assert "--model" in "\n".join(plan_report("gpt-5", forced=True))
 
 
-def test_images_report_names_the_backend_its_key_and_that_it_is_free(monkeypatch):
+def test_images_report_names_the_backend_its_key_and_its_cost(monkeypatch):
+    """This used to assert the banner called qwen "free". Model Studio's free
+    developer quota ended in April 2026 and qwen now bills ~$0.025/image, so
+    the assertion was pinning a claim that had stopped being true. The banner
+    must state a cost; it must not promise $0."""
     import pipeline.images as images
 
     qwen = next(p for p in images.PROVIDERS if p.name == "qwen-image")
     text = "\n".join(images.selection_report(qwen, forced=False, scenes=4))
     assert "qwen-image" in text
     assert "DASHSCOPE_API_KEY" in text
-    assert "free" in text
+    assert "0.025" in text, "the banner must name the real per-image cost"
     assert "4 scenes" in text
 
 
@@ -218,6 +222,7 @@ class FailingEditProvider:
 
     name = "fake-provider"
     requires = "FAKE_API_KEY"
+    can_edit = True   # this double exists to exercise the failing-edit path
 
     def available(self):
         return True

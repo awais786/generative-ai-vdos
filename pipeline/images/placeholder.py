@@ -11,9 +11,9 @@ from .util import WIDTH, HEIGHT
 
 class PlaceholderProvider(ImageProvider):
     name = "placeholder"
-
-    def available(self) -> bool:
-        return True
+    # No env_required, so the inherited available() is always True — which is
+    # what terminates the fallback chain.
+    cost = "free (rendered locally)"
 
     def generate(self, prompt: str, query: str | None = None,
                  negative: str | None = None, api_key=None,

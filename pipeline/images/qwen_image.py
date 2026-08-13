@@ -1,8 +1,14 @@
 """Qwen text-to-image via Alibaba Model Studio (DashScope SDK).
 
 Uses the same DASHSCOPE_API_KEY (and optional DASHSCOPE_API_URL workspace
-endpoint) as the Wan video backend. Model Studio's new-user free quota covers
-the qwen-image models, so images are $0 while it lasts.
+endpoint) as the Wan video backend.
+
+NOT reliably free. Model Studio's free developer quota ended in April 2026;
+what remains is a limited onboarding trial. After it, qwen-image bills roughly
+¥0.18/image (~$0.025) — more than gpt-image-1 at low quality. Rates vary by
+variant (qwen-image-plus is cheaper) and region, so treat the console as
+authoritative. This matters because this provider is first in PROVIDERS and is
+auto-picked: a lapsed quota means a bare run silently spends.
 """
 import base64
 import io
@@ -111,16 +117,14 @@ def _edit_model() -> str:
 
 class QwenImageProvider(ImageProvider):
     name = "qwen-image"
-    requires = "DASHSCOPE_API_KEY + QWEN_IMAGE_MODEL"
-
-    def available(self) -> bool:
-        # Both, not the key alone: _gen_model() raises without QWEN_IMAGE_MODEL,
-        # and this provider is first in PROVIDERS — so a key-only check makes
-        # auto-pick choose a backend that then dies at generation time, after
-        # the plan has already been paid for. Keep this in step with whatever
-        # generate() actually requires.
-        return bool(os.environ.get("DASHSCOPE_API_KEY")
-                    and os.environ.get("QWEN_IMAGE_MODEL", "").strip())
+    aliases = ("qwen", "dashscope")
+    # Both, not the key alone: _gen_model() raises without QWEN_IMAGE_MODEL, and
+    # this provider is first in PROVIDERS — so a key-only check would make
+    # auto-pick choose a backend that then dies at generation time.
+    env_required = ("DASHSCOPE_API_KEY", "QWEN_IMAGE_MODEL")
+    model_env = "QWEN_IMAGE_MODEL"
+    cost = "trial quota, then ~$0.025/image"
+    can_edit = True
 
     def _post(self, model: str, content: list,
               parameters: dict, api_key=None, on_preview_url=None) -> bytes:

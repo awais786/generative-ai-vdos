@@ -28,7 +28,7 @@ class FakeProvider:
     """Records every prompt it is asked to render."""
 
     name = "fake"
-    requires = ""
+    can_edit = False   # subclasses that define edit() must flip this
 
     def __init__(self):
         self.seen: list[str] = []
@@ -131,6 +131,8 @@ def test_character_reference_portraits_carry_the_anchors(tmp_path, monkeypatch):
     save_style(tmp_path, PRESETS["noir"])
 
     class EditingProvider(FakeProvider):
+        can_edit = True
+
         def edit(self, prompt, refs, negative=None, api_key=None, model=None,
                  on_preview_url=None):
             self.seen.append(prompt)
@@ -158,6 +160,8 @@ def test_inanimate_reference_portraits_carry_the_anchors(tmp_path, monkeypatch):
     save_style(tmp_path, PRESETS["noir"])
 
     class EditingProvider(FakeProvider):
+        can_edit = True
+
         def edit(self, prompt, refs, negative=None, api_key=None, model=None,
                  on_preview_url=None):
             self.seen.append(prompt)

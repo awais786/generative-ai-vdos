@@ -15,6 +15,7 @@ from ..schema import ShotPlan
 from ..styles import load_style
 from .base import ImageProvider
 from .flux import FluxProvider
+from .gemini_image import GeminiImageProvider
 from .gpt_image import GptImageProvider
 from .pexels import PexelsProvider
 from .placeholder import PlaceholderProvider
@@ -26,45 +27,28 @@ PROVIDERS: list[ImageProvider] = [
     PexelsProvider(),
     PlaceholderProvider(),
     GptImageProvider(),   # paid — never auto-selected, use --backend gpt-image-1 explicitly
+    GeminiImageProvider(),  # paid, no free tier — --backend gemini (nano banana)
 ]
 
 
-# Friendly flag values -> the real provider .name, so IMAGE_BACKEND can be set
-# to "openai" or "free" instead of remembering exact backend ids.
-ALIASES = {
-    "openai": "gpt-image-1",
-    "gpt": "gpt-image-1",
-    "qwen": "qwen-image",
-    "dashscope": "qwen-image",
-    "flux": "flux-schnell",
-    "replicate": "flux-schnell",
-    "stock": "pexels",
-}
+# Everything below is DERIVED from the providers themselves — do not add
+# entries by hand. A backend declares its aliases, cost and paid flag on its
+# class (see base.py); these views exist so callers can look facts up by name.
+# They were once four parallel structures maintained alongside PROVIDERS, and
+# keeping them in step by hand is what produced the qwen availability bug and
+# the IMAGE_BACKEND money-rule hole.
 
+#: Friendly flag values -> the real provider .name, so IMAGE_BACKEND can be set
+#: to "openai" or "qwen" instead of remembering exact backend ids.
+ALIASES = {alias: p.name for p in PROVIDERS for alias in p.aliases}
 
-# Paid backend that must never be auto-selected or reached via fallback — only
-# via an explicit backend name (money rule). See CLAUDE.md "Money rules".
-AUTO_EXCLUDE = {"gpt-image-1"}
+#: Paid backends, never auto-selected or reached via fallback — only via an
+#: explicit --backend on the command line (money rule; see CLAUDE.md).
+AUTO_EXCLUDE = {p.name for p in PROVIDERS if p.paid}
 
-
-# What each backend costs the user — stated in the run header so a paid pick is
-# never a surprise. Every figure here is copied from the provider module's own
-# docstring; never estimate one. Keep in sync with PROVIDERS.
-PROVIDER_COST = {
-    # qwen_image.py: "free quota covers the qwen-image models, so images are $0
-    # while it lasts" — free, but a quota, hence the qualifier.
-    "qwen-image": "free while the Model Studio quota lasts",
-    # flux.py: "~$0.003/image for Flux Schnell", after Replicate's free tier.
-    "flux-schnell": "free tier, then ~$0.003/image",
-    # pexels.py: "free signup, no billing".
-    "pexels": "free (stock photos)",
-    # placeholder.py: "always available, $0".
-    "placeholder": "free (rendered locally)",
-    # gpt_image.py docstring: "~$0.01-0.02/image at low quality" — and its
-    # generate() hardcodes quality="low", so the low-quality rate is the one
-    # that applies. Same figure as README.md's key table.
-    "gpt-image-1": "PAID ~$0.01-0.02/image",
-}
+#: What each backend costs, stated in the run header so a paid pick is never a
+#: surprise. Each figure is copied from the provider module's own docstring.
+PROVIDER_COST = {p.name: p.cost for p in PROVIDERS}
 
 
 def resolve_backend_arg(cli_value: str | None, env_value: str | None) -> str | None:
@@ -179,7 +163,7 @@ def character_refs(plan: ShotPlan, provider: ImageProvider, out_dir: Path,
     The portraits carry the style's consistency anchors too — they are what every
     character scene is edited from, so an un-anchored portrait would re-introduce
     the drift one level down."""
-    if not (plan.characters and hasattr(provider, "edit")):
+    if not (plan.characters and provider.can_edit):
         return {}
     anchor_text = style_anchors(work_dir)
     anchor_suffix = f", {anchor_text}" if anchor_text else ""
@@ -260,7 +244,7 @@ def generate_scene_image(
         scene.negative_prompt,
     ])) or None
 
-    if char_refs and not scene.reference_image and hasattr(primary, "edit"):
+    if char_refs and not scene.reference_image and primary.can_edit:
         named = [n for n in plan.characters_in(scene.media_prompt) if n in char_refs]
         refs = [char_refs[n] for n in named][:3]
         if refs:
@@ -299,8 +283,8 @@ def generate_scene_image(
         ref = Path(scene.reference_image)
         if not ref.is_file():
             raise RuntimeError(f"scene {index + 1}: reference_image not found: {ref}")
-        editor = primary if hasattr(primary, "edit") else next(
-            (p for p in PROVIDERS if hasattr(p, "edit")
+        editor = primary if primary.can_edit else next(
+            (p for p in PROVIDERS if p.can_edit
              and p.name not in AUTO_EXCLUDE and p.available()), None)
         if editor is None:
             raise RuntimeError("reference_image needs a backend with edit support "
@@ -341,7 +325,7 @@ def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None,
     ref_dir = out_dir / "refs"
     pending_refs = (sum(1 for c in plan.characters
                         if not (ref_dir / f"{c.name}.png").is_file())
-                    if plan.characters and hasattr(primary, "edit") else 0)
+                    if plan.characters and primary.can_edit else 0)
     for line in selection_report(primary, forced=backend is not None,
                                  scenes=drawn, refs=pending_refs):
         print(line)
