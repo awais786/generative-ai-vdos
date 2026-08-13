@@ -16,8 +16,19 @@ from pydantic import ValidationError
 from .schema import ShotPlan
 from .secure import SecureString
 
-SYSTEM = """You are a scriptwriter for a faceless YouTube channel. Given a topic or rough
-script, produce a complete shot plan for a 60-90 second video built from still images,
+# The length clause is the only part of the prompt that varies. It used to be a
+# hardcoded "60-90 second video" that nothing could satisfy: the prompt states no
+# scene count, so the model chose its own and the median finished video came out
+# at 28s. The count is now derived from the 4-8s-per-scene rule below.
+#
+# Substitute with .replace(), NEVER .format(): this prompt contains literal
+# {name}, {thief} and {arg_flag} placeholders — the character system depends on
+# them surviving verbatim — so .format() raises KeyError: 'thief'.
+_LENGTH_SLOT = "{length}"
+_DEFAULT_LENGTH = "a 60-90 second video"
+
+_SYSTEM_TEMPLATE = """You are a scriptwriter for a faceless YouTube channel. Given a topic or rough
+script, produce a complete shot plan for {length} built from still images,
 voiceover, and captions.
 
 Rules:
@@ -173,6 +184,42 @@ Dialogue and voices:
 - Match the voice language to the narration language.
 """
 
+# The prompt as every existing caller has always seen it.
+SYSTEM = _SYSTEM_TEMPLATE.replace(_LENGTH_SLOT, _DEFAULT_LENGTH)
+
+MIN_SCENES, MAX_SCENES = 2, 12
+_SECONDS_PER_SCENE = 6  # midpoint of the "roughly 4-8 seconds" rule in the prompt
+
+
+def scene_count_for(seconds: int) -> int:
+    """Scenes for a target duration, clamped to something renderable.
+
+    Derived from the prompt's own 4-8s-per-scene rule so the two agree. The
+    clamp matters because every scene is a paid image: `--seconds 600` asking
+    for a hundred scenes is a costly typo, not an instruction.
+    """
+    return max(MIN_SCENES, min(MAX_SCENES, round(seconds / _SECONDS_PER_SCENE)))
+
+
+def system_for(target_seconds: int | None) -> str:
+    """The scriptwriting prompt, with a length clause the model can satisfy.
+
+    None renders exactly today's text — the web app's celery path passes no
+    target and must not shift.
+
+    The clause deliberately states no per-scene duration: the prompt already
+    carries "roughly 4-8 seconds to speak aloud", and a second, narrower range
+    here would recreate the contradiction this exists to remove.
+    """
+    if target_seconds is None:
+        return SYSTEM
+    scenes = scene_count_for(target_seconds)
+    return _SYSTEM_TEMPLATE.replace(
+        _LENGTH_SLOT,
+        f"a video of about {target_seconds} seconds — that is "
+        f"{scenes} scenes. Do not exceed {scenes} scenes",
+    )
+
 
 LITELLM_DEFAULT_MODEL = "groq/llama-3.3-70b-versatile"
 
@@ -251,8 +298,12 @@ def _build_client(model: str, provider: str | None = None, api_key: SecureString
 
 
 def _parse_with_llm(user_content: str, model: str, system_extra: str | None = None,
-                    provider: str | None = None, api_key: SecureString | None = None) -> ShotPlan:
-    system = SYSTEM if not system_extra else f"{SYSTEM}\n\n{system_extra}"
+                    provider: str | None = None, api_key: SecureString | None = None,
+                    system_base: str | None = None) -> ShotPlan:
+    # Defaulting to None rather than to SYSTEM keeps the no-target guarantee
+    # structural: a caller that passes nothing cannot get different text.
+    base = system_base or SYSTEM
+    system = base if not system_extra else f"{base}\n\n{system_extra}"
     resolved_provider = provider or _infer_provider(model)
     client = _build_client(model, provider=resolved_provider, api_key=api_key)
 
@@ -328,6 +379,7 @@ def generate_shot_plan(
     animate: bool = False,
     provider: str | None = None,
     api_key: SecureString | None = None,
+    target_seconds: int | None = None,
 ) -> ShotPlan:
     from .styles import inject_style_instruction
     extras = []
@@ -340,7 +392,9 @@ def generate_shot_plan(
         )
     system_extra = "\n\n".join(extras) if extras else None
     return _parse_with_llm(f"Topic / rough script:\n\n{topic}", model,
-                           system_extra=system_extra, provider=provider, api_key=api_key)
+                           system_extra=system_extra,
+                           system_base=system_for(target_seconds),
+                           provider=provider, api_key=api_key)
 
 
 def polish_image_prompts(

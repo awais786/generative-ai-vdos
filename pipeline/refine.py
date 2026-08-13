@@ -122,6 +122,9 @@ def main() -> None:
     parser.add_argument("--style", default=None,
                         help="Style preset name, 'list' to show all, or "
                              "'custom:your description' (.env: VIDEO_STYLE)")
+    parser.add_argument("--seconds", type=int, default=None,
+                        help="Target video length; sets the scene count "
+                             "(default: the prompt's own 60-90s guidance)")
     args = parser.parse_args()
     if not args.model:
         from .script_agent import default_model
@@ -160,9 +163,14 @@ def main() -> None:
         import time
 
         from .run import slugify
-        from .script_agent import generate_shot_plan
+        from .script_agent import generate_shot_plan, scene_count_for
+        if args.seconds:
+            # Print the resolved count so the 2-12 clamp is visible rather than
+            # silently applied — --seconds 600 gives 12 scenes, not 100.
+            print(f"target: ~{args.seconds}s -> {scene_count_for(args.seconds)} scenes")
         print(f"generating plan ({args.model})...")
-        plan = generate_shot_plan(args.input, model=args.model, style=style)
+        plan = generate_shot_plan(args.input, model=args.model, style=style,
+                                  target_seconds=args.seconds)
         # Folder named after the generated title, e.g. output/the-thief-act/
         name = args.name or slugify(plan.title)[:40].strip("-") or time.strftime("%Y%m%d-%H%M%S")
         work_dir = Path("output") / name
