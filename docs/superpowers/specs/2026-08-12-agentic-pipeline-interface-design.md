@@ -176,6 +176,30 @@ API-backed entries **`configured`**, never `verified`, and makes no live network
 those cost money and add latency to every run. `AGENT_GUIDE.md` requires the agent to
 pass this distinction on to the user, so a first-call auth failure is not a surprise.
 
+> **Correction, from later reviews.** "A key is present" turned out to be the
+> wrong bar, in two ways.
+>
+> **A key alone is not enough to generate.** Every backend also needs a model
+> id, and `_gen_model()` raises without it. Since `available()` only saw the
+> key, qwen — first in `PROVIDERS` — was auto-picked and then died on scene 1,
+> which is the late failure this whole module exists to prevent. Each provider
+> now declares an `env_required` tuple covering everything `generate()` needs,
+> and the default `available()` checks all of it. `EXTRA_REQUIRED_ENV` in this
+> module remains only for the preflight *hint*.
+>
+> **Do not infer the missing var from `available()`.** `probe_images` derived
+> the gap list by parsing `provider.requires`, which is prose for humans
+> (`"REPLICATE_API_TOKEN (+ pip install replicate)"`). The result blamed keys
+> that were set: with `DASHSCOPE_API_KEY` present and only the model id
+> missing, the Images row said the key was unset while the Video row three
+> lines below said it was set. The gap list is now derived from the same
+> `env_required` tuple, checking each variable directly.
+>
+> `scripts/check-openai-key` had the matching bug: it tested `gpt-4o-mini`
+> regardless of `LLM_PROVIDER`, failing a working Anthropic or Gemini setup
+> over a model it never asks OpenAI for. It now checks the plan model only when
+> OpenAI is the configured provider.
+
 ### Output
 
 Human-readable table on stdout by default; `--json` for machine consumption. Example:
