@@ -15,6 +15,7 @@ import pipeline.assemble as assemble_mod
 from pipeline.styles import PRESETS
 
 
+@pytest.mark.skipif(assemble_mod._FONT is None, reason="no system font here")
 def test_dark_card_foreground_is_not_used_for_burned_in_text():
     storybook = PRESETS["storybook"]
     assert storybook["palette"]["fg"] == "#3b2a1a", "guard: the preset changed"
@@ -28,6 +29,7 @@ def test_dark_card_foreground_is_not_used_for_burned_in_text():
     assert "PrimaryColour" not in subs or "&H00FFFFFF" in subs.upper()
 
 
+@pytest.mark.skipif(assemble_mod._FONT is None, reason="no system font here")
 def test_light_card_foreground_is_still_honoured():
     """Positive control: the fix must not flatten every style to white."""
     cinematic = PRESETS["cinematic"]

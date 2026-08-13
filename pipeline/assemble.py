@@ -278,13 +278,24 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         raise SystemExit(
             f"no voiceover for scene(s) {missing_audio} in {audio_dir} — run:\n"
             f"  python -m pipeline.voiceover {work_dir}")
-    missing_images = [i for i in range(len(plan.scenes))
-                      if not (images_dir / f"scene_{i:02d}.png").is_file()
-                      and not (video_dir / f"scene_{i:02d}.mp4").is_file()]
-    if missing_images:
-        raise SystemExit(
-            f"no image or clip for scene(s) {missing_images} — run:\n"
-            f"  python -m pipeline.images {work_dir}")
+    missing = [i for i in range(len(plan.scenes))
+               if not (images_dir / f"scene_{i:02d}.png").is_file()
+               and not (video_dir / f"scene_{i:02d}.mp4").is_file()]
+    # Split by what can actually produce the missing file. generate_images()
+    # skips compose scenes by design, so telling the user to run pipeline.images
+    # for a card is a dead end: the command reports "skipped" and assembly fails
+    # again, identically, forever.
+    missing_cards = [i for i in missing if plan.scenes[i].compose]
+    missing_stills = [i for i in missing if not plan.scenes[i].compose]
+    if missing_cards or missing_stills:
+        lines = [f"no image or clip for scene(s) {missing} — run:"]
+        if missing_stills:
+            lines.append(f"  python -m pipeline.images {work_dir}"
+                         f"   (scenes {missing_stills})")
+        if missing_cards:
+            lines.append(f"  python -m pipeline.compose {work_dir}"
+                         f"   (card scenes {missing_cards})")
+        raise SystemExit("\n".join(lines))
 
     # Per-scene clip + that scene's voiceover. Captions are burned in *here*
     # (per-scene SRT with local timings) so the final pass can stream-copy

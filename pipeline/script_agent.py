@@ -9,6 +9,7 @@ chosen model name still routes: "gpt-*" -> OpenAI, "claude-*" -> Anthropic,
 "gemini-*" -> Gemini, anything else -> the LiteLLM proxy.
 """
 import json
+import math
 import os
 
 from pydantic import ValidationError
@@ -198,7 +199,11 @@ def scene_count_for(seconds: int) -> int:
     clamp matters because every scene is a paid image: `--seconds 600` asking
     for a hundred scenes is a costly typo, not an instruction.
     """
-    return max(MIN_SCENES, min(MAX_SCENES, round(seconds / _SECONDS_PER_SCENE)))
+    # floor(x + 0.5), not round(): round() is banker's rounding, so
+    # round(15/6) == round(2.5) == 2 gave --seconds 15 a ~12s video, and
+    # 21s and 27s both landed on 4 scenes.
+    scenes = math.floor(seconds / _SECONDS_PER_SCENE + 0.5)
+    return max(MIN_SCENES, min(MAX_SCENES, scenes))
 
 
 def system_for(target_seconds: int | None) -> str:

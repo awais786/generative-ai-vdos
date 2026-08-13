@@ -28,6 +28,11 @@ or rotated key reads as configured and fails only on first use.
 
 ## Rule Zero — every video goes through five stages
 
+Before stage 1, if the user's brief is a bare topic, read the `creative-intake`
+skill and ask what the video needs — purpose, audience, length, tone. Its
+answers set `--style` and `--seconds` below, which are otherwise undiscoverable
+and are what stop every video defaulting to seven scenes of "cinematic photo".
+
     python -m pipeline.refine "idea"     # stage 1 — shot plan
     python -m pipeline.images            # stage 2 — one image per scene
     python -m pipeline.voiceover         # stage 3 — narration + word timings

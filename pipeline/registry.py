@@ -125,21 +125,21 @@ def probe_images() -> list[Capability]:
             caps.append(Capability("images", name, State.PAID, detail, hint=hint))
             continue
 
-        # The specific gap is checked FIRST. available() now folds the extra
-        # vars into its own answer (qwen needs QWEN_IMAGE_MODEL as well as the
-        # key), so testing availability first made this branch unreachable and
-        # told a user with DASHSCOPE_API_KEY already set to go and set it.
-        if missing_extra:
-            joined = ", ".join(missing_extra)
-            caps.append(Capability(
-                "images", name, State.MISSING,
-                f"{joined} not set — the API key is present, but generation would fail",
-                hint=f"set {joined} in .env"))
-            continue
-
-        if not provider.available():
+        # Report EVERY gap at once. available() folds the extra vars into its
+        # own answer, so checking availability first hid the specific var and
+        # told a user with DASHSCOPE_API_KEY set to go and set it; checking
+        # only the specific var hid the key. Either way a preflight that
+        # reveals one missing var per run costs a round trip each time.
+        if missing_extra or not provider.available():
+            gaps = []
+            if not provider.available():
+                gaps += [v for v in need.replace(" + ", ",").split(",")
+                         if v.strip() and v.strip() not in missing_extra]
+            gaps += list(missing_extra)
+            joined = ", ".join(dict.fromkeys(g.strip() for g in gaps)) or need
             caps.append(Capability("images", name, State.MISSING,
-                                   f"{need} not set", hint=f"set {need} in .env"))
+                                   f"{joined} not set",
+                                   hint=f"set {joined} in .env"))
             continue
 
         state = State.METERED if name in METERED_BACKENDS else State.AVAILABLE

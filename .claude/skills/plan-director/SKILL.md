@@ -15,6 +15,12 @@ For the plan's structure, fields, and how to author them, read the
 
 ## Before running
 
+**If the brief is a bare topic** ("make a video about X"), read the
+`creative-intake` skill first and ask before generating — purpose, audience,
+length, tone. It composes the brief and picks `--style` / `--seconds` for you.
+When the brief already carries those, summarise it back in one sentence and
+proceed; intake exists for vague input, not as a toll booth.
+
 Preflight must show an available LLM row. Announce the model **preflight
 reported** and its cost before running — `default_model()` resolves from
 `LLM_PROVIDER` to `gpt-4o-mini` (~$0.001), `claude-haiku-4-5`,

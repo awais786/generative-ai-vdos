@@ -84,3 +84,65 @@ def test_scene_count_bounds_agree_with_the_schema_description():
     described = ShotPlan.model_fields["scenes"].description
     assert f"{MIN_SCENES}-{MAX_SCENES}" in described, (
         f"schema says {described!r} but the clamp is {MIN_SCENES}-{MAX_SCENES}")
+
+
+def test_a_card_scene_is_not_sent_to_the_image_stage(tmp_path, monkeypatch):
+    """generate_images() skips compose scenes by design, so telling the user to
+    run pipeline.images for a missing card was a dead end: the command reports
+    'skipped' and assembly fails again, identically, forever."""
+    import pipeline.assemble as assemble_mod
+    from pipeline.schema import ShotPlan
+
+    plan = ShotPlan.model_validate({
+        "title": "T", "description": "d.", "tags": ["t"], "music_mood": "calm",
+        "style_prefix": "photo",
+        "scenes": [
+            {"media_prompt": "a", "narration": "one"},
+            {"media_prompt": "b", "narration": "two",
+             "compose": {"template": "quote", "heading": "A line."}},
+        ],
+    })
+    for sub in ("images", "audio", "video"):
+        (tmp_path / sub).mkdir()
+    (tmp_path / "images" / "scene_00.png").write_bytes(b"png")
+    for i in (0, 1):
+        (tmp_path / "audio" / f"scene_{i:02d}.mp3").write_bytes(b"mp3")
+    monkeypatch.setattr(assemble_mod.shutil, "which", lambda n: f"/usr/bin/{n}")
+
+    with pytest.raises(SystemExit) as exc:
+        assemble_mod.assemble(plan, tmp_path)
+
+    message = str(exc.value)
+    assert "pipeline.compose" in message, "the card scene must point at the compose stage"
+    assert "card scenes [1]" in message
+
+
+def test_preflight_names_every_missing_var_at_once(monkeypatch):
+    """Reporting one gap per run costs a round trip each time — and the earlier
+    wording asserted 'the API key is present' when it was not."""
+    from pipeline.registry import probe_images
+
+    for var in ("DASHSCOPE_API_KEY", "QWEN_IMAGE_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    qwen = next(c for c in probe_images() if c.name == "qwen-image")
+    assert "DASHSCOPE_API_KEY" in qwen.detail
+    assert "QWEN_IMAGE_MODEL" in qwen.detail
+    assert "is present" not in qwen.detail
+
+
+@pytest.mark.parametrize("seconds, expected", [(15, 3), (21, 4), (27, 5), (33, 6)])
+def test_scene_count_is_monotone(seconds, expected):
+    """round() is banker's rounding: round(15/6) == round(2.5) == 2 gave
+    --seconds 15 a ~12s video, and 21s and 27s both landed on 4 scenes."""
+    from pipeline.script_agent import scene_count_for
+    assert scene_count_for(seconds) == expected
+
+
+def test_plan_director_routes_to_creative_intake():
+    """The creative-intake spec's Integration section asked for this hand-off.
+    Without it the skill was unreachable from the contract an agent reads, and
+    --seconds was undiscoverable."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    assert "creative-intake" in (root / ".claude/skills/plan-director/SKILL.md").read_text()
+    assert "creative-intake" in (root / "AGENT_GUIDE.md").read_text()
