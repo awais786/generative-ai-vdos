@@ -81,8 +81,14 @@ def test_auto_exclude_is_derived_from_paid():
 
 
 def test_cost_table_is_derived_from_providers():
+    """PROVIDER_COST is an import-time SNAPSHOT. A backend whose rate depends on
+    a configurable model (gpt-image-1 reads OPENAI_IMAGE_MODEL) resolves its
+    cost at call time, so only the fixed-cost backends can be compared to the
+    snapshot — selection_report reads provider.cost for the live value."""
     for p in images.PROVIDERS:
-        assert images.PROVIDER_COST[p.name] == p.cost
+        assert p.name in images.PROVIDER_COST
+        if p.model_env is None:
+            assert images.PROVIDER_COST[p.name] == p.cost
 
 
 def test_paid_providers_say_so_in_their_cost_line():

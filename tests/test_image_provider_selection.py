@@ -80,10 +80,13 @@ def test_env_image_backend_still_selects_free_backends():
 
 # --- the cost banner must count every billed image -------------------------
 
-def test_selection_report_counts_reference_portraits():
+def test_selection_report_counts_reference_portraits(monkeypatch):
     """The banner said "7 scenes" while the run generated 11 images -- the 4
     character reference portraits are billed too, so the stated cost was ~60%
     low."""
+    # gpt-image-1's cost line names the configured model, so pin it: another
+    # test clearing OPENAI_IMAGE_MODEL would otherwise change this one's output.
+    monkeypatch.setenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
     primary = next(p for p in images.PROVIDERS if p.name == "gpt-image-1")
     line = images.selection_report(primary, forced=True, scenes=7, refs=4)[0]
     assert "11 images" in line
