@@ -155,7 +155,7 @@ STYLE_FILE = "style.json"
 # Keys copied into the sidecar. style_prefix / global_negative / music_mood are
 # deliberately excluded: those already live in shot_plan.json, and duplicating
 # them would create a second source that could disagree with the first.
-_SIDECAR_KEYS = ("palette", "consistency_anchors", "text")
+_SIDECAR_KEYS = ("palette", "consistency_anchors", "text", "source")
 
 
 def save_style(work_dir: Path, preset: dict | None) -> Path | None:
@@ -237,7 +237,13 @@ def style_for_plan(preset: dict | None, proposed: object) -> dict | None:
     palette = validate_palette(proposed)
     if not palette:
         return None
-    return {"palette": palette, "consistency_anchors": [], "text": {}}
+    # source="model" marks a palette the LLM invented rather than one a preset
+    # promised. The compose cards use it — that is the bug the sidecar exists to
+    # fix — but burned-in captions and overlays do not: the style-playbook spec
+    # is explicit that the LLM never authors style values, and an invented
+    # colour on every default run would decide the legibility of every caption.
+    return {"palette": palette, "consistency_anchors": [], "text": {},
+            "source": "model"}
 
 
 def resolve_style(raw: str | None) -> dict[str, Any] | None:

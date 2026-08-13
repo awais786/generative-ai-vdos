@@ -125,7 +125,7 @@ def _restates(text: Optional[str], narration: Optional[str]) -> bool:
 _MIN_BURN_IN_LUMA = 140
 
 
-def _burn_in_colour(palette: dict) -> str | None:
+def _burn_in_colour(style: dict | None) -> str | None:
     """The style's text colour, but only when it is light enough to burn in.
 
     `palette["fg"]` is a CARD colour — schema.py defines it as "high contrast
@@ -135,7 +135,12 @@ def _burn_in_colour(palette: dict) -> str | None:
     vanished over its own bright illustrations. Returns None when the caller
     should use white instead.
     """
-    fg = palette.get("fg")
+    style = style or {}
+    # A palette the model invented styles the cards but never burned-in text:
+    # see style_for_plan(). Only a preset's palette reaches this far.
+    if style.get("source") == "model":
+        return None
+    fg = (style.get("palette") or {}).get("fg")
     if not fg or not _HEX_COLOUR.fullmatch(fg):
         return None
     r, g, b = (int(fg[i:i + 2], 16) for i in (1, 3, 5))
@@ -157,10 +162,9 @@ def _overlay_filter(text: Optional[str], style: dict | None = None) -> str:
                .replace("[", "\\[").replace("]", "\\]")
                .replace(",", "\\,").replace(";", "\\;"))
     text_cfg = (style or {}).get("text") or {}
-    palette = (style or {}).get("palette") or {}
     size = text_cfg.get("overlay_size", 58)
     border = text_cfg.get("overlay_border", 3)
-    safe = _burn_in_colour(palette)
+    safe = _burn_in_colour(style)
     colour = _hex_to_drawtext(safe) if safe else "white"
     return (f",drawtext=fontfile='{_font_arg(_FONT)}':text='{esc}':fontsize={size}:"
             f"fontcolor={colour}:borderw={border}:bordercolor=black@0.8:"
@@ -241,10 +245,9 @@ def _subtitle_filter(rel_path: str, srt_path: Path, style: dict | None = None) -
     if not srt_path.is_file() or srt_path.stat().st_size == 0:
         return ""
     text = (style or {}).get("text") or {}
-    palette = (style or {}).get("palette") or {}
     size = text.get("caption_size", 18)
     outline = text.get("caption_outline", 2)
-    safe = _burn_in_colour(palette)
+    safe = _burn_in_colour(style)
     colour = f",PrimaryColour={_hex_to_ass(safe)}" if safe else ""
     return (f",subtitles={rel_path}:force_style="
             f"'FontSize={size},Bold=1,Outline={outline},MarginV=40{colour}'")

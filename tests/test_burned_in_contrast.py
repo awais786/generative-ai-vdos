@@ -66,3 +66,37 @@ class _SRTStub:
 
 
 _SRT = _SRTStub()
+
+
+# --- the model's own palette must not colour burned-in text ----------------
+
+def _model_style(fg: str) -> dict:
+    """What style_for_plan() persists when there is no preset."""
+    from pipeline.styles import style_for_plan
+    return style_for_plan(None, {"bg1": "#101010", "bg2": "#202020",
+                                 "fg": fg, "accent": "#c08040"})
+
+
+def test_model_proposed_palette_does_not_colour_captions():
+    """The style-playbook spec is explicit that the LLM never authors style
+    values. Persisting the model's proposal as a sidecar meant a pale invented
+    fg (which passes the luma guard) filled every caption and overlay on the
+    default path — `pipeline.refine "idea"` with no --style. Cards may use it;
+    burned-in text may not."""
+    style = _model_style("#f0e68c")          # pale khaki: passes the luma guard
+    assert style["palette"]["fg"] == "#f0e68c", "guard: proposal was not stored"
+
+    overlay = assemble_mod._overlay_filter("A Label", style=style)
+    if overlay:
+        assert "0xf0e68c" not in overlay
+        assert "fontcolor=white" in overlay
+    subs = assemble_mod._subtitle_filter("audio/scene_00.srt", _SRT, style=style)
+    assert "PrimaryColour" not in subs
+
+
+def test_the_card_track_still_receives_the_model_palette():
+    """Positive control: restricting burned-in text must not silently disable
+    the sidecar for compose cards, which is the problem it was built to fix."""
+    style = _model_style("#f0e68c")
+    assert style["palette"]["fg"] == "#f0e68c"
+    assert style.get("source") == "model"

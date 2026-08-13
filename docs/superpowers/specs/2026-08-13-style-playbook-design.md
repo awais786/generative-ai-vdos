@@ -221,6 +221,22 @@ LLM round trips. `inject_style_instruction()` is unchanged and continues to pin
 the fields the LLM does control (`style_prefix`, `global_negative`,
 `music_mood`).
 
+> **Correction, added after implementation and a code review.** This section and
+> the "`pipeline/schema.py` is **not** modified" line above no longer describe
+> the code. A `palette` field *was* added to `ShotPlan`, and `style_for_plan()`
+> persists the model's proposal when no preset is set — so on the default path
+> (`pipeline.refine "idea"` with no `--style`) the model does author four hex
+> values.
+>
+> The spec's reasoning still held for the part that mattered. Those invented
+> colours were reaching `assemble.py` and filling every burned-in caption and
+> overlay, where captions had previously been unconditionally white — one
+> uncontrolled colour deciding the legibility of every video. That is now
+> confined: `style_for_plan()` marks a model-authored style `source: "model"`,
+> and `_burn_in_colour()` refuses any such palette, so burned-in text uses a
+> preset's palette or white. The compose cards still use the proposal, which is
+> the problem the sidecar was built to solve.
+
 ## Backward compatibility
 
 Every new field is optional and defaults to `None`:
