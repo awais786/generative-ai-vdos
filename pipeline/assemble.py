@@ -2,6 +2,7 @@
 import json
 import logging
 import random
+import re
 import shutil
 import subprocess
 import time
@@ -57,6 +58,36 @@ def _hex_to_ass(hex_colour: str) -> str:
 def _hex_to_drawtext(hex_colour: str) -> str:
     """#rrggbb -> 0xrrggbb for ffmpeg drawtext fontcolor."""
     return "0x" + hex_colour.lstrip("#").lower()
+
+
+def _flatten(text: Optional[str]) -> str:
+    """Lowercase, punctuation to spaces, whitespace collapsed — so that
+    'everyone HAS a WAVE coming...' and 'Everyone has a wave coming' compare equal."""
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).split())
+
+
+def _restates(text: Optional[str], narration: Optional[str]) -> bool:
+    """True when `text` is a verbatim phrase already spoken in `narration`.
+
+    The subtitles are built from the narration, so anything this returns True
+    for would render twice on the same frame. Deliberately conservative:
+
+    - Contiguous phrase only. Paraphrase ('Meet the Professor' against "Meet
+      our professor") never fires — catching it needs judgement we don't have.
+    - Under 3 words never fires. This is what protects the short labels that
+      repeat the narration on purpose: in a listicle, 'ARGENTINA' over
+      "Argentina — champions by destiny" IS the visual design.
+    - 'subscribe' never fires. CTA copy repeats the narration on purpose.
+    """
+    flat = _flatten(text)
+    spoken = _flatten(narration)
+    if not flat or not spoken:
+        return False
+    if len(flat.split()) < 3:
+        return False
+    if "subscribe" in flat:
+        return False
+    return f" {flat} " in f" {spoken} "
 
 
 def _overlay_filter(text: Optional[str], style: dict | None = None) -> str:
