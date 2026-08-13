@@ -57,6 +57,36 @@ Details that matter:
 - A failed ref portrait just omits that character — their scenes fall back to text-to-image. A failed edit falls back to text-to-image for that scene. Both are fail-soft by design.
 - `scene.reference_image` (a user-supplied photo) needs an edit-capable backend; if the primary lacks `edit()`, the first available provider with it is used.
 
+## How other tools solve this — and what is worth taking
+
+Surveyed 2026-08-14. The industry converges on the same mechanism this repo
+already uses, with one upgrade available.
+
+**Reference anchoring is the standard, and we have it.** Every serious tool
+anchors each scene to the same character image so the model locks onto face,
+hair and wardrobe. That is exactly `character_refs()` + `provider.edit()`. The
+repo is not behind here.
+
+**Turnaround sheets are the upgrade.** The recommended practice is a reference
+showing the character from *several* angles — front, three-quarter, profile,
+back — with identical clothing and features in each. We render **one** portrait
+per character (`character_refs()`, neutral standing pose), so a scene calling
+for a rear or profile view is extrapolating from a single front view. That is a
+plausible cause of drift on non-frontal shots, and it is a contained change:
+render the portrait as a multi-angle sheet rather than a single pose.
+
+**Platform "Character ID" systems** (Kling and similar) hold identity server-side
+across clips. Not adoptable — it is a property of their hosted model, not a
+technique.
+
+**Negative prompts for exclusion** are the standard answer for unwanted content,
+which matches `global_negative`. Nothing better was found; the industry has the
+same problem and the same blunt tool.
+
+Sources: [Kling character consistency guide](https://kling.ai/blog/ai-character-consistency-guide),
+[PixVerse](https://pixverse.ai/en/blog/ai-video-generator-with-character-consistency),
+[BachVid (arXiv 2510.21696)](https://arxiv.org/pdf/2510.21696).
+
 ## Per-provider quirks
 
 - **qwen-image** (`qwen_image.py`): generates 1664x928, then `fit_cover()` crops to exactly 1920x1080. `prompt_extend: false` is deliberate — DashScope's prompt rewriter kept adding rendered captions to images. Response URLs are temporary (24h) — always download immediately. Needs `DASHSCOPE_API_KEY` (+ optional `DASHSCOPE_API_URL` workspace endpoint).

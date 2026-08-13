@@ -47,6 +47,36 @@ one scene with `--backend gpt-image-1`:
 `gpt-image-1` follows instructions much better, but that is a paid call —
 announce and get approval first.
 
+## Check EVERY scene, in one look
+
+Spot-checking is how bad images ship. Build a contact sheet and read it — one
+command, every scene, nothing missed:
+
+    cd output/<name>
+    for f in images/scene_*.png; do echo "$f"; done      # confirm the count
+    ffmpeg -y -i images/scene_%02d.png \
+           -filter_complex "scale=640:360,tile=2x2" sheet.png
+
+(raise the tile grid for more scenes: `tile=3x3`, `tile=3x2`, …)
+
+**This is not optional and it is not what you feel like you already did.**
+Twice in one session on *The Thirsty Crow* the images were declared good after
+two of five scenes were examined. The scene that was never opened — scene 0,
+the **opening frame of the video** — contained a girl in a field and no crow at
+all. It shipped into an assembled video that was reported as fixed.
+
+Read the sheet asking two questions, in this order:
+
+1. **Is anything here the story never mentioned?** An extra person, a second
+   animal, invented signage. This is the common failure and it is invisible in
+   the plan — see `image-prompt`.
+2. **Is the subject present at all?** An "establishing shot" prompt with no
+   subject named gets filled with whatever the model thinks belongs.
+
+If either fails, the fix is usually `global_negative` or the prompt's missing
+subject — both in `image-prompt` — followed by regenerating **only** the
+affected scenes.
+
 ## The gate
 
 Show the images. Wait for approval before voiceover.
