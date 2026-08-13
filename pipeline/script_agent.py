@@ -124,6 +124,11 @@ GLOBAL NEGATIVE: Always set global_negative on the plan with video-wide rules:
 - Videos with people: "changing hairstyle, inconsistent clothing, different face, extra limbs, text, watermark, blurry"
 - Add for flags: "wrong flag colors, altered flag design, swapped flags"
 - Add for animals: "wrong species, inconsistent markings"
+- If NO character in the cast is a person, you MUST add:
+  "people, human, boy, girl, child, man, woman, person, hands"
+  Image models fill a scene with whatever usually appears alongside it, and a
+  children's-storybook prompt about an animal reliably invents a child looking
+  on. Nothing in the scene prompt forbids it, so the exclusion has to be here.
 This is merged into EVERY scene automatically — do not repeat it per scene.
 
 FINAL CHECK before outputting: scan every image_prompt. If any person, flag, building,
