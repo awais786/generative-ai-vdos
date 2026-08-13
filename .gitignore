@@ -16,7 +16,8 @@ credentials
 .venv/
 __pycache__/
 *.pyc
-uv.lock
+# uv.lock is COMMITTED on purpose — it is what makes `uv sync` resolve the same
+# dependency versions for everyone. Do not add it back here.
 
 # Generated artifacts (videos, images, audio, state)
 output/
@@ -39,3 +40,9 @@ webapp/.next/
 
 *.zip
 workdirs/*
+# Added by code-review-graph
+.code-review-graph/
+
+# Local code index — 4 MB of machine-generated data, rebuilt on demand
+.codegraph/
+*.bak
