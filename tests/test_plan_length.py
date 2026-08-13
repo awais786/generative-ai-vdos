@@ -72,3 +72,48 @@ def test_the_character_consistency_section_survives():
     for rendered in (system_for(None), system_for(30)):
         assert "CHARACTER AND VISUAL CONSISTENCY" in rendered
         assert "Argentina flag" in rendered
+
+
+# --- CLI threading ---
+
+import sys
+
+
+def test_refine_passes_seconds_through(tmp_path, monkeypatch):
+    # The flag is worthless unless it reaches the prompt. This drives main()
+    # rather than the helper, because the wiring is where it would be dropped.
+    import pipeline.refine as refine_mod
+
+    seen = {}
+
+    def fake_generate(topic, **kw):
+        seen.update(kw)
+        raise SystemExit(0)  # stop before any file is written
+
+    monkeypatch.setattr("pipeline.script_agent.generate_shot_plan", fake_generate)
+    monkeypatch.setattr(sys, "argv", ["refine", "a topic", "--seconds", "30"])
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        refine_mod.main()
+    assert seen.get("target_seconds") == 30
+
+
+def test_refine_without_seconds_passes_none(tmp_path, monkeypatch):
+    import pipeline.refine as refine_mod
+
+    seen = {}
+
+    def fake_generate(topic, **kw):
+        seen.update(kw)
+        raise SystemExit(0)
+
+    monkeypatch.setattr("pipeline.script_agent.generate_shot_plan", fake_generate)
+    monkeypatch.setattr(sys, "argv", ["refine", "a topic"])
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        refine_mod.main()
+    # Assert the key is PRESENT and None, not merely absent — `.get()` returning
+    # None would pass identically against a build that never threads the flag,
+    # which is exactly the regression this is meant to catch.
+    assert "target_seconds" in seen
+    assert seen["target_seconds"] is None

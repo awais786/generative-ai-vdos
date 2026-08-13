@@ -79,6 +79,9 @@ def main() -> None:
     parser.add_argument("--style", default=os.environ.get("VIDEO_STYLE"),
                         help="Style preset name, 'list' to show all, or "
                              "'custom:your description' (.env: VIDEO_STYLE)")
+    parser.add_argument("--seconds", type=int, default=None,
+                        help="Target video length; sets the scene count "
+                             "(default: the prompt's own 60-90s guidance)")
     args = parser.parse_args()
     if not args.model:
         from .script_agent import default_model
@@ -94,10 +97,14 @@ def main() -> None:
 
     # ---- Stage 1: shot plan ----
     if "plan" not in state["done"]:
-        from .script_agent import generate_shot_plan, refine_plan
+        from .script_agent import generate_shot_plan, refine_plan, scene_count_for
         print(f"stage: plan ({args.model})")
+        if args.seconds:
+            # Show the resolved count so the 2-12 clamp is visible.
+            print(f"target: ~{args.seconds}s -> {scene_count_for(args.seconds)} scenes")
         plan = generate_shot_plan(args.topic, model=args.model, style=style,
-                                  animate=args.animate)
+                                  animate=args.animate,
+                                  target_seconds=args.seconds)
         plan_file.write_text(plan.model_dump_json(indent=2))
         plan = refine_plan(
             plan, model=args.model, animate=args.animate,
