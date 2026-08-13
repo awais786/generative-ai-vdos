@@ -67,15 +67,56 @@ PROVIDER_COST = {
 }
 
 
+def resolve_backend_arg(cli_value: str | None, env_value: str | None) -> str | None:
+    """Backend name from the --backend flag, else IMAGE_BACKEND — but the
+    environment alone may never select a paid backend.
+
+    A *forced* backend bypasses AUTO_EXCLUDE, and --backend used to default
+    straight to IMAGE_BACKEND. So one `IMAGE_BACKEND=openai` line in .env billed
+    every bare `python -m pipeline.images`, with nothing typed on the command
+    line — contradicting CLAUDE.md's rule that gpt-image-1 "requires explicit
+    --backend gpt-image-1". Same shape as the VIDEO_STYLE hole in refine.py: an
+    env default made an "explicit" check pass by itself.
+    """
+    if cli_value is not None:
+        return cli_value
+    if env_value is None:
+        return None
+    resolved = ALIASES.get(env_value.strip().lower(), env_value.strip())
+    if resolved in AUTO_EXCLUDE:
+        raise RuntimeError(
+            f"IMAGE_BACKEND={env_value!r} selects the paid backend "
+            f"'{resolved}', which must be chosen explicitly. Either pass "
+            f"--backend {resolved} to confirm the spend, or set IMAGE_BACKEND "
+            f"to a free backend (qwen | flux | stock | placeholder).")
+    return env_value
+
+
 def selection_report(primary: ImageProvider, forced: bool,
-                     scenes: int | None = None) -> list[str]:
+                     scenes: int | None = None, refs: int = 0) -> list[str]:
     """Header lines for the images stage: the backend, its key, its cost — and,
-    for an auto-pick, which higher-priority backends were skipped and why."""
+    for an auto-pick, which higher-priority backends were skipped and why.
+
+    `refs` is the number of character reference portraits still to be rendered.
+    They are billed exactly like scene images, so leaving them out of the count
+    understated a real run by 4 images out of 11."""
     source = ("forced via --backend/IMAGE_BACKEND" if forced
               else (primary.requires or "no key needed"))
     cost = PROVIDER_COST.get(primary.name, "cost unknown")
-    count = f", {report.plural(scenes, 'scene')}" if scenes is not None else ""
+    if scenes is None:
+        count = ""
+    elif refs:
+        # The row carries the billed total — that is the number the cost applies
+        # to. The breakdown goes on its own line so report.fit()'s 120-char cap
+        # cannot truncate the figure that matters.
+        count = f", {scenes + refs} images"
+    else:
+        count = f", {report.plural(scenes, 'scene')}"
     lines = [report.row("images", primary.name, f"{source}, {cost}{count}")]
+    if refs:
+        lines.append(report.note_line(
+            f"{report.plural(scenes, 'scene')} + {refs} character reference "
+            f"portrait{'s' if refs != 1 else ''} (portraits are billed too)"))
     if forced:
         return lines
     for p in PROVIDERS:
@@ -295,7 +336,14 @@ def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None,
     out_dir.mkdir(parents=True, exist_ok=True)
     primary = get_provider(backend)
     drawn = sum(1 for s in plan.scenes if not s.compose)
-    for line in selection_report(primary, forced=backend is not None, scenes=drawn):
+    # Reference portraits are billed like any other image. Count only the ones
+    # not already cached on disk, so a re-run reports what it will actually spend.
+    ref_dir = out_dir / "refs"
+    pending_refs = (sum(1 for c in plan.characters
+                        if not (ref_dir / f"{c.name}.png").is_file())
+                    if plan.characters and hasattr(primary, "edit") else 0)
+    for line in selection_report(primary, forced=backend is not None,
+                                 scenes=drawn, refs=pending_refs):
         print(line)
     if plan.characters:
         print("  images: character check (same description substituted in every scene):")

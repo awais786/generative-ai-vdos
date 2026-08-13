@@ -7,12 +7,13 @@ Usage:
 """
 import argparse
 import os
+import sys
 from pathlib import Path
 
 from ..env import load_env
 from ..schema import ShotPlan
 from . import (character_refs, generate_images, generate_scene_image,
-               get_provider, selection_report)
+               get_provider, resolve_backend_arg, selection_report)
 
 
 def main() -> None:
@@ -21,10 +22,17 @@ def main() -> None:
     parser.add_argument("work_dir", nargs="?", default=None,
                         help="output/<name> dir (default: the most recent one)")
     parser.add_argument("--scene", type=int, default=None, help="Regenerate only this scene index (0-based)")
-    parser.add_argument("--backend", default=os.environ.get("IMAGE_BACKEND"),
+    parser.add_argument("--backend", default=None,
                         help="Image backend (.env: IMAGE_BACKEND; qwen | openai | "
                              "flux | stock | placeholder)")
     args = parser.parse_args()
+    # Deliberately not an argparse default: IMAGE_BACKEND must not be able to
+    # select a paid backend on its own. See resolve_backend_arg.
+    try:
+        args.backend = resolve_backend_arg(args.backend, os.environ.get("IMAGE_BACKEND"))
+    except RuntimeError as e:
+        # A misconfiguration, not a crash — exit with the message, no traceback.
+        sys.exit(str(e))
 
     from ..run import latest_work_dir
     work_dir = Path(args.work_dir) if args.work_dir else latest_work_dir()
