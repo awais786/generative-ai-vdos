@@ -12,6 +12,28 @@ itself, and every prompt is generated independently of its neighbours.
 Read `shot-plan` for the plan's structure and `image-backends` for provider
 behaviour. This file is about the prompt text.
 
+## Structure a prompt in five parts
+
+Adapted from [jezweb/claude-skills `ai-image-generator`](https://github.com/jezweb/claude-skills/blob/main/plugins/design-assets/skills/ai-image-generator/SKILL.md),
+which arrives at the same conclusions this file did from a different direction.
+Fill every slot; an empty one gets filled by the model instead.
+
+| # | Part | In this pipeline |
+|---|---|---|
+| 1 | **Image type** | comes from `style_prefix` — do not restate it per scene |
+| 2 | **Subject** | `{placeholder}` for anything recurring. **Never empty** — see Rule 1 |
+| 3 | **Environment** | where the scene happens |
+| 4 | **Technical** | shot size, angle, lighting — "wide establishing", "low angle", "harsh midday sun" |
+| 5 | **Constraints** | exclusions. In this pipeline they do NOT go in the prompt — they go in `global_negative` / `Character.negative` / `scene.negative_prompt`, because the models here draw negated words |
+
+Part 2 being a required slot is the structural version of Rule 1: a prompt with
+no subject is an unfilled form, not a stylistic choice.
+
+Prefer narrative direction over stacked keywords. `"a tired crow on a bare
+branch under harsh midday sun, parched grass below"` beats `"crow, branch, sun,
+dry, hot, storybook, high quality, detailed"`. Generic quality words —
+"masterpiece", "8k", "highly detailed" — add nothing to modern models.
+
 ## Rule 1 — every prompt names its subject
 
 **The single most common defect, and it is invisible until you look at the

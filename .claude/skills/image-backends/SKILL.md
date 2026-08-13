@@ -57,6 +57,21 @@ Details that matter:
 - A failed ref portrait just omits that character — their scenes fall back to text-to-image. A failed edit falls back to text-to-image for that scene. Both are fail-soft by design.
 - `scene.reference_image` (a user-supplied photo) needs an edit-capable backend; if the primary lacks `edit()`, the first available provider with it is used.
 
+## Text inside images — we sidestep this on purpose
+
+A widely used rule elsewhere is *"any image containing readable text must go to
+the model that renders text well"*, because most image models produce garbled
+lettering. See [jezweb/claude-skills `ai-image-generator`](https://github.com/jezweb/claude-skills/blob/main/plugins/design-assets/skills/ai-image-generator/SKILL.md),
+whose whole model-selection rule turns on it.
+
+**This pipeline never asks an image model for text.** Titles, quotes, lower
+thirds and outros are `compose` scenes rendered by Remotion; captions and
+overlays are burned in by ffmpeg. All of it is real vector/font text, free, and
+correct by construction — so backend choice never has to bend around text
+quality. Keep it that way: if a scene needs words on screen, that is a compose
+card or an `on_screen_text` overlay, never a prompt asking for a sign or a
+banner. `global_negative` already carries "text, watermark" for this reason.
+
 ## How other tools solve this — and what is worth taking
 
 Surveyed 2026-08-14. The industry converges on the same mechanism this repo
