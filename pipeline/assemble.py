@@ -243,7 +243,14 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         mp3 = audio_dir / f"scene_{i:02d}.mp3"
         clip = clips_dir / f"scene_{i:02d}.mp4"
         dur = _duration(mp3) + 0.3  # small breath between scenes
-        overlay = _overlay_filter(plan.scenes[i].on_screen_text, style=style)
+        scene = plan.scenes[i]
+        # An overlay that only repeats the narration would print the same words
+        # the subtitles are already showing. The subtitles win: they are
+        # word-timed and carry accessibility.
+        overlay_text = scene.on_screen_text
+        if _restates(overlay_text, scene.narration):
+            overlay_text = None
+        overlay = _overlay_filter(overlay_text, style=style)
 
         t_srt = time.perf_counter()
         words_json = audio_dir / f"scene_{i:02d}.words.json"
@@ -252,6 +259,10 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         srt_wall += time.perf_counter() - t_srt
         # ffmpeg cwd=work_dir so libass sees a clean relative path
         subs = _subtitle_filter(f"audio/scene_{i:02d}.srt", srt_path, style=style)
+        # A compose card IS the scene's whole visual. When it shows the line the
+        # narration speaks, the card wins and the subtitles stand down.
+        if scene.compose and _restates(scene.compose.heading, scene.narration):
+            subs = ""
 
         if vid.exists():
             scenes_wall += _run([
