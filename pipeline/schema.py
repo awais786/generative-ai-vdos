@@ -87,7 +87,11 @@ class Scene(BaseModel):
         "animate are ignored for this scene.",
     )
     on_screen_text: Optional[str] = Field(
-        default=None, description="Optional short overlay text (max ~6 words)."
+        default=None,
+        description="Optional short overlay text (max ~6 words). Must add "
+        "something the narration does not say — a label, a name, a number, or "
+        "a question. Never repeat a phrase from the narration: the burned-in "
+        "captions already show those words.",
     )
     voice: Optional[str] = Field(
         default=None,

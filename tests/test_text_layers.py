@@ -12,6 +12,7 @@ import pathlib
 import pytest
 
 from pipeline.assemble import _flatten, _restates
+from pipeline.schema import Scene
 
 WAVE = "Everyone has a wave coming. Yours is out there too, past the horizon."
 
@@ -78,3 +79,12 @@ def test_corpus_suppression_stays_narrow():
         f"suppressing {rate:.0%} of overlays ({len(fired)}/{len(scenes)}) — the rule "
         f"has been loosened and is now deleting deliberate labels: {fired[:10]}"
     )
+
+
+def test_on_screen_text_description_forbids_restating_the_narration():
+    """The 45% redundancy rate in output/ traces to this field's description,
+    which said only 'Optional short overlay text (max ~6 words).' — nothing
+    told the model the overlay should not echo what is being spoken."""
+    description = Scene.model_fields["on_screen_text"].description
+    assert "max ~6 words" in description, "the existing length rule must survive"
+    assert "narration" in description.lower()
