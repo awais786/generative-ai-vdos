@@ -100,7 +100,7 @@ python -m pipeline.refine "<brief>" --style <preset> --seconds <n>
         │
         ▼
 generate_shot_plan(topic, target_seconds=n)
-   SYSTEM renders "about {n} seconds — that is {scenes} scenes"
+   SYSTEM renders "about {clamped} seconds ({scenes} scenes, no more than {scenes})"
 ```
 
 ## Component: the length parameter
@@ -109,9 +109,20 @@ generate_shot_plan(topic, target_seconds=n)
 the target:
 
 ```
-produce a complete shot plan for a video of about {seconds} seconds —
-that is {scenes} scenes. Do not exceed {scenes} scenes.
+produce a complete shot plan for a video of about {scenes * 6} seconds
+({scenes} scenes, and no more than {scenes}).
 ```
+
+> **Correction, added after a third code review.** As first written the clause
+> interpolated the *requested* seconds while the scene count was clamped, so
+> `--seconds 300` rendered *"about 300 seconds — that is 12 scenes"* — telling
+> the model two incompatible things at once, against the prompt's own 4-8s rule.
+> The clause now states the length the scene count actually implies.
+>
+> It also has to stay a **noun phrase**: the slot sits mid-sentence, and the
+> imperative *"Do not exceed N scenes"* swallowed the rest of it, producing
+> *"...Do not exceed 12 scenes built from still images, voiceover, and
+> captions."* The limit is now a parenthetical inside the phrase.
 
 The clause deliberately does **not** restate a per-scene duration: `SYSTEM`
 already carries *"each scene's narration should take roughly 4-8 seconds to
@@ -123,7 +134,7 @@ that existing rule instead.
 `None` the prompt renders **exactly today's text**, so every existing caller —
 including the web app's Celery path — is unaffected.
 
-Scene count is `round(seconds / 6)`, clamped to **2–12**. Six is the midpoint of
+Scene count is `floor(seconds / 6 + 0.5)`, clamped to **2–12**. (`round()` was used at first: it is banker's rounding, so `round(15/6) == round(2.5) == 2` gave `--seconds 15` a ~12s video, and 21s and 27s both landed on 4 scenes.) Six is the midpoint of
 `SYSTEM`'s existing 4–8s rule, so the count and the rule agree by construction.
 The clamp keeps a careless `--seconds 5` or `--seconds 600` from producing a
 one-scene or forty-scene plan.

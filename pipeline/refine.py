@@ -20,6 +20,7 @@ import os
 import sys
 from pathlib import Path
 
+from . import report
 from .env import load_env
 from .schema import ShotPlan
 # Imported at module level (both are cheap, stdlib/pydantic only) so
@@ -150,7 +151,6 @@ def main() -> None:
 
     # Header only when an LLM call is actually coming — viewing a plan is free.
     if not is_existing_plan or args.change or args.polish:
-        from . import report
         from .script_agent import plan_report
         for line in plan_report(args.model, forced=forced_model):
             print(line)
@@ -198,6 +198,17 @@ def main() -> None:
     # pipeline.refine has no --animate flag, so plans start animation-free.
     do_polish = args.polish or (not is_existing_plan and not args.no_polish)
     do_review = args.polish or not is_existing_plan
+    if is_existing_plan and style_explicit and not args.change:
+        # Repainting the sidecar without regenerating the plan leaves the new
+        # style's consistency_anchors appended to image prompts written for the
+        # OLD style_prefix — noir's "high-contrast black and white grade" on a
+        # watercolor plan, fighting each other in every prompt. The repaint is
+        # still allowed (it is what --style on an existing plan means), but it
+        # must not be silent.
+        print(report.warning(
+            f"--style {args.style} repaints style.json only — the plan's "
+            f"style_prefix is unchanged, so image prompts may fight the new "
+            f"anchors. Add --change \"restyle as {args.style}\" to rewrite the plan."))
     plan = _finalize_plan_artifacts(
         plan=plan, work_dir=work_dir,
         # With no preset, the helper falls back to the palette the model

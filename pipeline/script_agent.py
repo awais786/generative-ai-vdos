@@ -221,8 +221,14 @@ def system_for(target_seconds: int | None) -> str:
     scenes = scene_count_for(target_seconds)
     return _SYSTEM_TEMPLATE.replace(
         _LENGTH_SLOT,
-        f"a video of about {target_seconds} seconds — that is "
-        f"{scenes} scenes. Do not exceed {scenes} scenes",
+        # State the length the scene count actually implies, not the raw
+        # request: --seconds 300 clamps to 12 scenes, and saying "about 300
+        # seconds — that is 12 scenes" contradicts the prompt's own 4-8s rule
+        # in the same breath. The clause also has to stay a noun phrase so the
+        # sentence it sits inside still ends "...built from still images,
+        # voiceover, and captions"; the imperative went into its own sentence.
+        f"a video of about {scenes * _SECONDS_PER_SCENE} seconds "
+        f"({scenes} scenes, and no more than {scenes})",
     )
 
 

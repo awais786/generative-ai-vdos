@@ -237,6 +237,36 @@ the fields the LLM does control (`style_prefix`, `global_negative`,
 > preset's palette or white. The compose cards still use the proposal, which is
 > the problem the sidecar was built to solve.
 
+> **Two further corrections, from a third code review.**
+>
+> **A `custom:` style suppressed the palette entirely.** `resolve_style("custom:…")`
+> returns a preset carrying only `style_prefix` / `global_negative` /
+> `music_mood`. `style_for_plan()` saw a truthy preset and returned it before
+> validating the model's proposal, `save_style()` then found none of
+> `_SIDECAR_KEYS` and wrote nothing — so `--style "custom:neon cyberpunk"`
+> produced *worse* card colours than passing no style at all, falling back to
+> the `music_mood` table while a valid proposal sat unused. A preset with no
+> palette now falls through to the model's, marked `source: "model"` so it
+> styles cards without reaching burned-in text.
+>
+> **`--style` on an existing plan repaints the sidecar without regenerating the
+> plan.** `revise_shot_plan()` never receives the style, so
+> `pipeline.refine <dir> --style noir` rewrote `style.json` with noir's palette
+> and consistency anchors while `shot_plan.json` kept the old `style_prefix` —
+> and `images.style_anchors()` then appended *"same high-contrast black and
+> white grade in every scene"* to prompts written for a watercolour video. The
+> repaint is still allowed, since that is what the flag means, but it now warns
+> and names `--change` as the way to rewrite the plan too.
+
+> **Validation, same review.** Colours from `style.json` are regex-checked
+> before reaching ffmpeg, but the sizes beside them were not — and
+> `overlay_size` / `overlay_border` / `caption_size` / `caption_outline` are
+> interpolated straight into the drawtext filtergraph and the libass
+> `force_style` string from the same user-editable file. A hand-edited
+> `"overlay_size": "big"`, or any value carrying a `:` or a quote, broke the
+> whole filter exactly as a bad colour did. `_int_or()` now coerces them, since
+> `load_style()` is documented never to raise.
+
 ## Backward compatibility
 
 Every new field is optional and defaults to `None`:

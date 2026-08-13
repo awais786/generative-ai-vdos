@@ -130,13 +130,20 @@ def probe_images() -> list[Capability]:
         # told a user with DASHSCOPE_API_KEY set to go and set it; checking
         # only the specific var hid the key. Either way a preflight that
         # reveals one missing var per run costs a round trip each time.
-        if missing_extra or not provider.available():
-            gaps = []
-            if not provider.available():
-                gaps += [v for v in need.replace(" + ", ",").split(",")
-                         if v.strip() and v.strip() not in missing_extra]
-            gaps += list(missing_extra)
-            joined = ", ".join(dict.fromkeys(g.strip() for g in gaps)) or need
+        # Name only the vars that are ACTUALLY unset. Deriving them from
+        # available() blamed the key whenever anything was missing — so with
+        # DASHSCOPE_API_KEY set and only the model id absent, the Images row
+        # said the key was unset while the Video row three lines below said it
+        # was set. Check each var directly.
+        # Straight from the provider's own declaration. `provider.requires` is
+        # prose for humans ("REPLICATE_API_TOKEN (+ pip install replicate)"), so
+        # parsing the var list out of it produced garbled hints and blamed keys
+        # that were already set; env_required is the machine-readable list, and
+        # deriving it here avoids yet another table to keep in step.
+        gaps = [v for v in (*provider.env_required, *missing_extra)
+                if not os.environ.get(v, "").strip()]
+        if gaps or not provider.available():
+            joined = ", ".join(dict.fromkeys(gaps)) or need
             caps.append(Capability("images", name, State.MISSING,
                                    f"{joined} not set",
                                    hint=f"set {joined} in .env"))

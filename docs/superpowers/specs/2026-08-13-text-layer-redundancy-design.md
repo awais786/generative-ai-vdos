@@ -101,7 +101,7 @@ One predicate, two call sites, one field-description change.
 scene i
   ├─ on_screen_text  ──scene has a compose card?─────> drop the drawtext overlay
   │                  └─_restates(text, narration)?──> drop the drawtext overlay
-  ├─ compose.heading ──_restates(head, narration)?──> drop the subtitles
+  ├─ compose.heading ──_covers(head, narration)?────> drop the subtitles
   └─ narration ─────────────────────────────────────> subtitles (unchanged)
 ```
 
@@ -135,6 +135,25 @@ Every clause is deliberately conservative:
   purpose. It is the only content-based exception, and it exists because the
   corpus contains two such scenes that the phrase test otherwise catches.
 
+> **Correction, added after a third code review.** The card rule as specified
+> here used `_restates()` alone, and containment turned out to be far too broad
+> for silencing a whole scene's captions. `_restates()` fires on any contiguous
+> 3-word phrase, so a `title_card` reading *"The Sharing Berry"* inside the
+> narration *"In a forest far away, the sharing berry changed everything for
+> the animals"* dropped **all thirteen narrated words** — including the ten the
+> card never shows.
+>
+> A card now silences the captions only when it accounts for most of what is
+> spoken: `_covers()` requires the heading to be at least `_CARD_COVERAGE`
+> (0.6) of the narration's words, on top of the verbatim-phrase test. The
+> honey-bee and greedy-dog cards, where the card genuinely *is* the narration,
+> still suppress. `the-journey-of-santiago` no longer does — its card carries
+> the first of two narrated sentences, so the second sentence keeps its
+> captions.
+>
+> The ideal fix is finer still: suppress only the duplicated SRT entries rather
+> than the whole scene's. That was judged more risk than it was worth here.
+
 Measured effect on the 27 existing plans: **5 overlays suppressed**, 27 labels
 untouched, and **1 of the 4 compose scenes** drops its subtitles — the `quote`
 card in `the-journey-of-santiago` scene 3, whose heading *"The real treasure was
@@ -150,7 +169,7 @@ Both are in `assemble()`'s per-scene loop, which already computes `overlay` and
 - Where `overlay` is built from `plan.scenes[i].on_screen_text`, pass an empty
   overlay when `_restates(on_screen_text, narration)`.
 - Where `subs` is built, pass an empty subtitle filter when the scene has a
-  `compose` and `_restates(compose.heading, narration)`.
+  `compose` and `_covers(compose.heading, narration)`.
 
 No template special-casing is needed for the card case. A `lower_third` heading
 is a name or label — under 3 words, or not a verbatim lift — so it self-excludes.

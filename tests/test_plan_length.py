@@ -49,7 +49,25 @@ def test_a_target_states_the_scene_count_and_the_seconds():
     rendered = system_for(30)
     assert "about 30 seconds" in rendered
     assert "5 scenes" in rendered
-    assert "Do not exceed 5 scenes" in rendered
+    assert "no more than 5" in rendered
+
+
+def test_the_stated_seconds_match_the_scene_count_that_was_clamped_to():
+    """--seconds 300 clamps to 12 scenes, but the seconds figure used to be
+    interpolated unclamped: 'about 300 seconds — that is 12 scenes' told the
+    model two incompatible things at once, against the prompt's own 4-8s rule."""
+    rendered = system_for(300)
+    assert "300 seconds" not in rendered
+    assert "about 72 seconds" in rendered, "12 scenes at the prompt's 6s midpoint"
+    assert "12 scenes" in rendered
+
+
+def test_the_length_clause_leaves_the_sentence_intact():
+    """The slot sits mid-sentence, so an imperative there swallowed the rest:
+    '...no more than 12 scenes built from still images, voiceover, and captions'."""
+    rendered = system_for(60)
+    assert "built from still images," in rendered
+    assert rendered.index("built from still images,") > rendered.index("scenes")
 
 
 def test_a_target_removes_the_hardcoded_range():

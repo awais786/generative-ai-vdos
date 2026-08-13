@@ -22,7 +22,10 @@ def _model() -> str:
 class GptImageProvider(ImageProvider):
     name = "gpt-image-1"
     aliases = ("openai", "gpt")
-    env_required = ("OPENAI_API_KEY",)
+    # Both vars: _model() raises without OPENAI_IMAGE_MODEL, so --backend
+    # gpt-image-1 on a key-only setup failed at generation time rather than at
+    # selection time — after the plan had already been paid for.
+    env_required = ("OPENAI_API_KEY", "OPENAI_IMAGE_MODEL")
     model_env = "OPENAI_IMAGE_MODEL"
     # From this module's docstring; generate() hardcodes quality="low".
     cost = "PAID ~$0.01-0.02/image"
