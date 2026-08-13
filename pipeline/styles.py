@@ -95,8 +95,13 @@ PRESETS: dict[str, dict[str, Any]] = {
             "text, watermark, blurry"
         ),
         "music_mood": "calm",
-        "palette": {"bg1": "#1d1426", "bg2": "#5a3b52", "fg": "#fdf0dd",
-                    "accent": "#f0b563", "glow": "rgba(240,181,99,0.26)"},
+        # Sampled from what this preset's style_prefix actually renders: warm
+        # yellows and golden sand (#fee373, #fbbd46). The previous values were a
+        # dark plum picked by intuition, which put a purple card against bright
+        # hand-drawn illustrations — the very mismatch the style sidecar exists
+        # to prevent, reintroduced through bad preset data rather than bad wiring.
+        "palette": {"bg1": "#f4e3c1", "bg2": "#e6c98f", "fg": "#3b2a1a",
+                    "accent": "#b4622d", "glow": "rgba(180,98,45,0.24)"},
         "consistency_anchors": [
             "same warm illustrative palette in every scene",
             "same soft lighting and rounded shapes",
