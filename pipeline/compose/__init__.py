@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..schema import ShotPlan
+from ..styles import load_style
 
 FPS = 30
 BREATH = 0.3  # match assemble.py: a small breath added to each scene's duration
@@ -65,8 +66,20 @@ def _audio_duration(mp3: Path) -> Optional[float]:
         return None
 
 
-def _palette_for(plan: ShotPlan) -> dict[str, str]:
-    return MOOD_PALETTES.get((plan.music_mood or "").strip().lower(), _DEFAULT_PALETTE)
+def _palette_for(plan: ShotPlan, work_dir: Path | None = None) -> dict[str, str]:
+    """The card palette, preferring the video's own style.
+
+    Falls back to the music-mood table per key, so a work dir with no style.json
+    behaves exactly as before and a partially hand-edited palette cannot produce
+    an unreadable card.
+    """
+    base = MOOD_PALETTES.get((plan.music_mood or "").strip().lower(), _DEFAULT_PALETTE)
+    if work_dir is None:
+        return base
+    override = load_style(work_dir).get("palette")
+    if not isinstance(override, dict):
+        return base
+    return {**base, **{k: v for k, v in override.items() if v}}
 
 
 def _props_for(scene_compose, palette: dict[str, str], frames: int) -> dict:
@@ -112,7 +125,7 @@ def render_compositions(plan: ShotPlan, work_dir: Path) -> list[Path]:
     props_dir = work_dir / "compose"
     props_dir.mkdir(parents=True, exist_ok=True)
 
-    palette = _palette_for(plan)
+    palette = _palette_for(plan, work_dir)
     entry = "src/index.ts"
     rendered: list[Path] = []
 

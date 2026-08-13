@@ -103,6 +103,14 @@ def main() -> None:
             plan, model=args.model, animate=args.animate,
             on_write=lambda p: plan_file.write_text(p.model_dump_json(indent=2)),
         )
+        # After refine_plan, not before: it returns a fresh LLM-parsed plan, so a
+        # style written earlier would describe a superseded one. Resuming a run
+        # whose plan stage is already done skips this with the rest of the stage,
+        # leaving an existing style.json alone.
+        from .styles import save_style, style_for_plan
+        # With no --style, persist the palette the model proposed for this plan
+        # instead of writing nothing; a preset always wins over it.
+        save_style(work_dir, style_for_plan(style, getattr(plan, "palette", None)))
         state["done"].append("plan")
         save_state(work_dir, state)
         print(f"  wrote {plan_file} ({len(plan.scenes)} scenes)")
@@ -125,7 +133,8 @@ def main() -> None:
     if "images" not in state["done"]:
         from .images import generate_images
         print("stage: images")
-        generate_images(plan, work_dir / "images", backend=args.image_backend)
+        generate_images(plan, work_dir / "images", backend=args.image_backend,
+                        work_dir=work_dir)
         state["done"].append("images")
         save_state(work_dir, state)
     if args.until == "images":
