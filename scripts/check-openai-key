@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Verify the OpenAI key in .env actually works.
+
+`python -m pipeline.registry` reports whether a key is *present*, never whether
+it *works* — it makes no network calls, because live probes would cost money and
+add latency to every run. This script is the deliberate opposite: run it by hand
+when you want the network answer.
+
+It uses GET /v1/models, which authenticates without generating anything, so a
+check costs nothing. The key is never printed.
+
+    scripts/check-openai-key
+
+Exit codes: 0 all good · 1 key invalid or missing · 2 key works but a model
+this repo needs is unavailable.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+API = "https://api.openai.com/v1/models"
+TIMEOUT = 20
+
+# Stdlib only and no repo imports on purpose: this must still run when the venv
+# or the pipeline package is broken, which is exactly when you reach for it.
+ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+
+
+def load_env_value(name: str) -> str:
+    """Read one key from .env. Real environment wins, matching pipeline/env.py."""
+    if os.environ.get(name, "").strip():
+        return os.environ[name].strip()
+    if not ENV_PATH.is_file():
+        return ""
+    for line in ENV_PATH.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if key.strip() != name:
+            continue
+        value = value.strip()
+        if value[:1] in ("'", '"'):
+            end = value.find(value[0], 1)
+            value = value[1:end] if end != -1 else value[1:]
+        else:
+            match = re.search(r"(^|\s)#", value)
+            if match:
+                value = value[: match.start()]
+        return value.strip()
+    return ""
+
+
+def fingerprint(key: str) -> str:
+    """Enough to tell two keys apart in a bug report, not enough to use."""
+    return f"{key[:7]}…{key[-4:]} ({len(key)} chars)" if len(key) > 12 else "(too short)"
+
+
+def fetch_models(key: str) -> tuple[int, list[str], str]:
+    """Return (status, model_ids, error_message)."""
+    req = urllib.request.Request(API, headers={"Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            payload = json.loads(resp.read().decode())
+        return 200, sorted(m["id"] for m in payload.get("data", [])), ""
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="ignore")
+        try:
+            message = json.loads(body)["error"]["message"]
+        except Exception:
+            message = body[:300] or exc.reason
+        return exc.code, [], message
+    except urllib.error.URLError as exc:
+        return 0, [], f"could not reach {API}: {exc.reason}"
+
+
+def main() -> int:
+    key = load_env_value("OPENAI_API_KEY")
+    if not key:
+        print("✗ OPENAI_API_KEY is not set (checked the environment, then .env)")
+        return 1
+
+    print(f"key      {fingerprint(key)}")
+    print(f"source   {'environment' if os.environ.get('OPENAI_API_KEY') else ENV_PATH}")
+
+    status, models, error = fetch_models(key)
+
+    if status == 401:
+        print(f"✗ rejected by OpenAI (401): {error}")
+        print("  → replace OPENAI_API_KEY in .env with a valid key")
+        return 1
+    if status != 200:
+        print(f"✗ check failed (HTTP {status or 'no response'}): {error}")
+        return 1
+
+    print(f"✓ key is valid — {len(models)} models visible to this account")
+
+    # Only the models this repo will actually ask for.
+    wanted = {
+        "plan model (LLM_PROVIDER=openai)": "gpt-4o-mini",
+        "image model (OPENAI_IMAGE_MODEL)": load_env_value("OPENAI_IMAGE_MODEL"),
+    }
+    missing = False
+    for label, model in wanted.items():
+        if not model:
+            print(f"  ? {label}: not configured in .env")
+            continue
+        if model in models:
+            print(f"  ✓ {label}: {model}")
+        else:
+            print(f"  ✗ {label}: {model} NOT available to this account")
+            missing = True
+
+    if missing:
+        print("\n  A model can be missing because the account lacks access or "
+              "the id is wrong.\n  Available image-ish models:")
+        for m in models:
+            if "image" in m or "dall" in m:
+                print(f"    {m}")
+        return 2
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

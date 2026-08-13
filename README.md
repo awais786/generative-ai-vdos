@@ -80,6 +80,9 @@ Minimum: one LLM key (OpenAI or Anthropic). With no image key the pipeline rende
 
 ## Workflow
 
+**Working with an AI agent?** Point it at [`AGENT_GUIDE.md`](AGENT_GUIDE.md) — it's the
+operating contract for driving this pipeline (preflight, review gates, money rules).
+
 **Try it without writing anything:** a ready-made plan ships in [`examples/`](examples/README.md) —
 `cp -r examples/the-sharing-berry output/ && python -m pipeline.images output/the-sharing-berry`
 (see `examples/README.md` for the full run and which API key each stage needs).
