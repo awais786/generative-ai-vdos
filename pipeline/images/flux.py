@@ -13,7 +13,11 @@ logger = logging.getLogger(__name__)
 class FluxProvider(ImageProvider):
     name = "flux-schnell"
     aliases = ("flux", "replicate")
-    env_required = ("REPLICATE_API_TOKEN",)
+    # Both vars: _model() raises without REPLICATE_IMAGE_MODEL, and flux is
+    # auto-pickable — so a token-only setup was selected and then failed on
+    # every scene, falling through the chain one at a time (or dying outright
+    # with --backend flux, where there is no fallback).
+    env_required = ("REPLICATE_API_TOKEN", "REPLICATE_IMAGE_MODEL")
     extra_requires = "pip install replicate"
     cost = "free tier, then ~$0.003/image"
 

@@ -330,6 +330,10 @@ def test_flux_reports_metered_not_available(monkeypatch):
     import pipeline.images as images
     for p in images.PROVIDERS:
         monkeypatch.setattr(p, "available", lambda: True)
+    # Both vars: probe_images now checks the environment directly rather than
+    # trusting available(), so a monkeypatched available() alone no longer makes
+    # a backend look configured.
+    monkeypatch.setenv("REPLICATE_API_TOKEN", "r8_test")
     monkeypatch.setenv("REPLICATE_IMAGE_MODEL", "black-forest-labs/flux-schnell")
     cap = _by_name(registry.probe_images(), "flux-schnell")
     assert cap.state == State.METERED

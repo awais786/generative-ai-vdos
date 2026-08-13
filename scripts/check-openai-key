@@ -101,11 +101,18 @@ def main() -> int:
 
     print(f"✓ key is valid — {len(models)} models visible to this account")
 
-    # Only the models this repo will actually ask for.
+    # Only the models this repo will actually ask for. The plan model is
+    # checked only when OpenAI is the configured LLM provider — otherwise a
+    # working Anthropic or Gemini setup failed this script over a model it
+    # never asks OpenAI for. The literal matches script_agent.default_model(),
+    # which hardcodes gpt-4o-mini for LLM_PROVIDER=openai; this script stays
+    # stdlib-only, so it cannot import that and must restate it.
+    provider = load_env_value("LLM_PROVIDER").strip().lower()
     wanted = {
-        "plan model (LLM_PROVIDER=openai)": "gpt-4o-mini",
         "image model (OPENAI_IMAGE_MODEL)": load_env_value("OPENAI_IMAGE_MODEL"),
     }
+    if provider in ("openai", ""):
+        wanted["plan model (LLM_PROVIDER=openai)"] = "gpt-4o-mini"
     missing = False
     for label, model in wanted.items():
         if not model:

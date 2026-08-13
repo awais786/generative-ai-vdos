@@ -233,7 +233,17 @@ def style_for_plan(preset: dict | None, proposed: object) -> dict | None:
     than the music_mood fallback, which is what the card would otherwise use.
     """
     if preset:
-        return preset
+        if preset.get("palette"):
+            return preset
+        # A `custom:` style is only a style_prefix — it carries no palette, so
+        # returning it here left save_style() with no sidecar keys to write and
+        # the cards falling back to the music_mood table. That made
+        # --style "custom:neon cyberpunk" produce WORSE card colours than
+        # passing no style at all, while a valid model proposal sat unused.
+        custom_palette = validate_palette(proposed)
+        if not custom_palette:
+            return preset
+        return {**preset, "palette": custom_palette, "source": "model"}
     palette = validate_palette(proposed)
     if not palette:
         return None

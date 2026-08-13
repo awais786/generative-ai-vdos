@@ -148,6 +148,46 @@ def _burn_in_colour(style: dict | None) -> str | None:
     return fg if luma >= _MIN_BURN_IN_LUMA else None
 
 
+#: How much of the narration a card heading must account for before the
+#: subtitles stand down. A card only replaces the captions when it is showing
+#: substantially what is being said.
+_CARD_COVERAGE = 0.6
+
+
+def _int_or(value: object, fallback: int) -> int:
+    """A size from the user-editable style.json, or the default.
+
+    These are interpolated straight into the drawtext filtergraph and libass
+    force_style string, exactly like the colours above — so a hand-edited
+    "overlay_size": "big", or any value carrying a ':' or a quote, breaks the
+    whole filter. load_style() is documented never to raise, so the fallback
+    has to live here.
+    """
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return size if 1 <= size <= 400 else fallback
+
+
+def _covers(heading: Optional[str], narration: Optional[str]) -> bool:
+    """True when a card heading accounts for most of what the narration says.
+
+    Containment alone is far too broad for dropping a whole scene's captions:
+    a `title_card` reading "The Sharing Berry" is a verbatim phrase inside "In
+    a forest far away, the sharing berry changed everything for the animals",
+    so _restates() fires and all thirteen narrated words lose their captions —
+    including the ten the card never shows. The card wins only where it is
+    genuinely saying the same thing.
+    """
+    if not _restates(heading, narration):
+        return False
+    spoken = _flatten(narration).split()
+    if not spoken:
+        return False
+    return len(_flatten(heading).split()) / len(spoken) >= _CARD_COVERAGE
+
+
 def _overlay_filter(text: Optional[str], style: dict | None = None) -> str:
     """drawtext filter chunk for the scene's on_screen_text (top center), or ''."""
     if not text or _FONT is None:
@@ -162,8 +202,8 @@ def _overlay_filter(text: Optional[str], style: dict | None = None) -> str:
                .replace("[", "\\[").replace("]", "\\]")
                .replace(",", "\\,").replace(";", "\\;"))
     text_cfg = (style or {}).get("text") or {}
-    size = text_cfg.get("overlay_size", 58)
-    border = text_cfg.get("overlay_border", 3)
+    size = _int_or(text_cfg.get("overlay_size"), 58)
+    border = _int_or(text_cfg.get("overlay_border"), 3)
     safe = _burn_in_colour(style)
     colour = _hex_to_drawtext(safe) if safe else "white"
     return (f",drawtext=fontfile='{_font_arg(_FONT)}':text='{esc}':fontsize={size}:"
@@ -245,8 +285,8 @@ def _subtitle_filter(rel_path: str, srt_path: Path, style: dict | None = None) -
     if not srt_path.is_file() or srt_path.stat().st_size == 0:
         return ""
     text = (style or {}).get("text") or {}
-    size = text.get("caption_size", 18)
-    outline = text.get("caption_outline", 2)
+    size = _int_or(text.get("caption_size"), 18)
+    outline = _int_or(text.get("caption_outline"), 2)
     safe = _burn_in_colour(style)
     colour = f",PrimaryColour={_hex_to_ass(safe)}" if safe else ""
     return (f",subtitles={rel_path}:force_style="
@@ -312,7 +352,7 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         # Every other stage announces what it chose; this one quietly dropped
         # authored text. Name the scenes so the choice is reviewable.
         print(report.note_line(
-            f"overlay suppressed on scene {', '.join(str(i) for i in suppressed)} "
+            f"overlay suppressed on scene {', '.join(str(i + 1) for i in suppressed)} "
             f"(already spoken in the narration, or the scene is a card)"))
 
     if _FONT is None:
@@ -354,7 +394,7 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         subs = _subtitle_filter(f"audio/scene_{i:02d}.srt", srt_path, style=style)
         # A compose card IS the scene's whole visual. When it shows the line the
         # narration speaks, the card wins and the subtitles stand down.
-        if scene.compose and _restates(scene.compose.heading, scene.narration):
+        if scene.compose and _covers(scene.compose.heading, scene.narration):
             subs = ""
 
         if vid.exists():
