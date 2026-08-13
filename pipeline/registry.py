@@ -42,16 +42,6 @@ class State:
 # only the key, so a backend can report configured and still fail on the first
 # call — exactly the late failure this module exists to prevent. Each of these
 # raises at generation time when unset (e.g. qwen_image._gen_model()).
-# The API-key env var per backend. `provider.requires` is prose for humans
-# ("REPLICATE_API_TOKEN (+ pip install replicate)"), so inferring the var list
-# from it produced garbled hints and blamed keys that were already set.
-KEY_ENV = {
-    "qwen-image": "DASHSCOPE_API_KEY",
-    "flux-schnell": "REPLICATE_API_TOKEN",
-    "pexels": "PEXELS_API_KEY",
-    "gpt-image-1": "OPENAI_API_KEY",
-}
-
 EXTRA_REQUIRED_ENV = {
     "qwen-image": ("QWEN_IMAGE_MODEL",),
     "gpt-image-1": ("OPENAI_IMAGE_MODEL",),
@@ -145,8 +135,12 @@ def probe_images() -> list[Capability]:
         # DASHSCOPE_API_KEY set and only the model id absent, the Images row
         # said the key was unset while the Video row three lines below said it
         # was set. Check each var directly.
-        key = KEY_ENV.get(name)
-        gaps = [v for v in ([key] if key else []) + list(missing_extra)
+        # Straight from the provider's own declaration. `provider.requires` is
+        # prose for humans ("REPLICATE_API_TOKEN (+ pip install replicate)"), so
+        # parsing the var list out of it produced garbled hints and blamed keys
+        # that were already set; env_required is the machine-readable list, and
+        # deriving it here avoids yet another table to keep in step.
+        gaps = [v for v in (*provider.env_required, *missing_extra)
                 if not os.environ.get(v, "").strip()]
         if gaps or not provider.available():
             joined = ", ".join(dict.fromkeys(gaps)) or need
