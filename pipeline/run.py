@@ -83,12 +83,15 @@ def main() -> None:
                         help="Target video length; sets the scene count "
                              "(default: the prompt's own 60-90s guidance)")
     args = parser.parse_args()
+    forced_model = args.model is not None
     if not args.model:
         from .script_agent import default_model
         args.model = default_model()  # errors if LLM_PROVIDER not set
 
     from .styles import resolve_style
     style = resolve_style(args.style)
+
+    from . import report
 
     work_dir = Path(args.out) / (args.name or slugify(args.topic))
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -97,11 +100,17 @@ def main() -> None:
 
     # ---- Stage 1: shot plan ----
     if "plan" not in state["done"]:
-        from .script_agent import generate_shot_plan, refine_plan, scene_count_for
-        print(f"stage: plan ({args.model})")
+        from .script_agent import (generate_shot_plan, plan_report, refine_plan,
+                                   scene_count_for)
+        print("stage: plan")
+        for line in plan_report(args.model, forced=forced_model):
+            print(line)
+        if args.style:
+            print(report.note_line(f"style preset: {args.style} (--style / VIDEO_STYLE)"))
         if args.seconds:
             # Show the resolved count so the 2-12 clamp is visible.
-            print(f"target: ~{args.seconds}s -> {scene_count_for(args.seconds)} scenes")
+            print(report.note_line(
+                f"target: ~{args.seconds}s -> {scene_count_for(args.seconds)} scenes"))
         plan = generate_shot_plan(args.topic, model=args.model, style=style,
                                   animate=args.animate,
                                   target_seconds=args.seconds)
@@ -162,8 +171,11 @@ def main() -> None:
 
     # ---- Stage 3: voiceover ----
     if "voice" not in state["done"]:
-        from .voiceover import generate_voiceover
-        print("stage: voiceover (edge-tts)")
+        from .voiceover import DEFAULT_VOICE, generate_voiceover, voice_report
+        print("stage: voiceover")
+        for line in voice_report(plan, args.voice or DEFAULT_VOICE,
+                                 forced=bool(args.voice)):
+            print(line)
         generate_voiceover(plan, work_dir / "audio", voice=args.voice)
         state["done"].append("voice")
         save_state(work_dir, state)
@@ -178,7 +190,7 @@ def main() -> None:
         compose_scenes = [i for i, s in enumerate(plan.scenes) if s.compose]
         if compose_scenes:
             from .compose import render_compositions
-            print(f"stage: compose (remotion, {len(compose_scenes)} card scene(s))")
+            print("stage: compose")
             render_compositions(plan, work_dir)
         state["done"].append("compose")
         save_state(work_dir, state)
@@ -188,11 +200,14 @@ def main() -> None:
 
     # ---- Stage 4: assembly ----
     if "assemble" not in state["done"]:
-        from .assemble import assemble, pick_music
-        print("stage: assemble (ffmpeg)")
-        music = pick_music(Path(args.music_dir), plan.music_mood)
-        print(f"  music: {music if music else 'none (music/ folder empty)'}")
-        final = assemble(plan, work_dir, music_path=music)
+        from .assemble import assemble, choose_music, music_report
+        print("stage: assemble")
+        print(report.row("assemble", "ffmpeg",
+                         f"local render, free, {report.plural(len(plan.scenes), 'scene')}"))
+        choice = choose_music(Path(args.music_dir), plan.music_mood)
+        for line in music_report(choice):
+            print(line)
+        final = assemble(plan, work_dir, music_path=choice.path)
         state["done"].append("assemble")
         save_state(work_dir, state)
         print(f"\nDone: {final}")

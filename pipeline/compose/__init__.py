@@ -16,6 +16,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from .. import report
 from ..schema import ShotPlan
 from ..styles import load_style
 
@@ -125,7 +126,20 @@ def render_compositions(plan: ShotPlan, work_dir: Path) -> list[Path]:
     props_dir = work_dir / "compose"
     props_dir.mkdir(parents=True, exist_ok=True)
 
+    print(report.row("compose", "remotion",
+                     f"local render, free, {report.plural(len(compose_scenes), 'card scene')}"))
     palette = _palette_for(plan, work_dir)
+    # Report where the palette actually came from. The style sidecar wins, and
+    # when it exists the music mood is irrelevant — so the pre-style message
+    # ("no palette for mood X") would be actively misleading there. Only warn
+    # about the mood when the mood is genuinely what got used.
+    from ..styles import load_style
+    if load_style(work_dir).get("palette"):
+        print(report.note_line("palette: from the video's style"))
+    elif (plan.music_mood or "").strip().lower() not in MOOD_PALETTES:
+        print(report.note_line(
+            f"palette: default (no style set, and no palette for mood "
+            f"'{plan.music_mood}')"))
     entry = "src/index.ts"
     rendered: list[Path] = []
 

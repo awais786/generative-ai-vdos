@@ -10,6 +10,7 @@ ending at the always-available placeholder.
 """
 from pathlib import Path
 
+from .. import report
 from ..schema import ShotPlan
 from ..styles import load_style
 from .base import ImageProvider
@@ -44,6 +45,50 @@ ALIASES = {
 # Paid backend that must never be auto-selected or reached via fallback — only
 # via an explicit backend name (money rule). See CLAUDE.md "Money rules".
 AUTO_EXCLUDE = {"gpt-image-1"}
+
+
+# What each backend costs the user — stated in the run header so a paid pick is
+# never a surprise. Every figure here is copied from the provider module's own
+# docstring; never estimate one. Keep in sync with PROVIDERS.
+PROVIDER_COST = {
+    # qwen_image.py: "free quota covers the qwen-image models, so images are $0
+    # while it lasts" — free, but a quota, hence the qualifier.
+    "qwen-image": "free while the Model Studio quota lasts",
+    # flux.py: "~$0.003/image for Flux Schnell", after Replicate's free tier.
+    "flux-schnell": "free tier, then ~$0.003/image",
+    # pexels.py: "free signup, no billing".
+    "pexels": "free (stock photos)",
+    # placeholder.py: "always available, $0".
+    "placeholder": "free (rendered locally)",
+    # gpt_image.py docstring: "~$0.01-0.02/image at low quality" — and its
+    # generate() hardcodes quality="low", so the low-quality rate is the one
+    # that applies. Same figure as README.md's key table.
+    "gpt-image-1": "PAID ~$0.01-0.02/image",
+}
+
+
+def selection_report(primary: ImageProvider, forced: bool,
+                     scenes: int | None = None) -> list[str]:
+    """Header lines for the images stage: the backend, its key, its cost — and,
+    for an auto-pick, which higher-priority backends were skipped and why."""
+    source = ("forced via --backend/IMAGE_BACKEND" if forced
+              else (primary.requires or "no key needed"))
+    cost = PROVIDER_COST.get(primary.name, "cost unknown")
+    count = f", {report.plural(scenes, 'scene')}" if scenes is not None else ""
+    lines = [report.row("images", primary.name, f"{source}, {cost}{count}")]
+    if forced:
+        return lines
+    for p in PROVIDERS:
+        if p is primary:
+            break
+        if p.name in AUTO_EXCLUDE:
+            reason = "paid — explicit --backend only"
+        elif not p.available():
+            reason = f"needs {p.requires}" if p.requires else "not available"
+        else:
+            continue
+        lines.append(report.note_line(f"{p.name} skipped ({reason})"))
+    return lines
 
 
 def get_provider(name: str | None = None, api_key=None) -> ImageProvider:
@@ -118,7 +163,11 @@ def character_refs(plan: ShotPlan, provider: ImageProvider, out_dir: Path,
                 data = provider.generate(prompt, negative=c.negative, api_key=api_key)
                 p.write_bytes(data)
             except Exception as e:
-                print(f"    ref {c.name}: failed ({e}) — scenes will text-to-image instead")
+                # Error text last: report.fit() caps the line, so what gets cut
+                # is the provider's message, not what the pipeline did about it.
+                print(report.note_line(
+                    f"reference portrait for {c.name} failed, its scenes will "
+                    f"text-to-image instead: {report.brief(e)}"))
                 continue
         refs[c.name] = p
     return refs
@@ -201,8 +250,9 @@ def generate_scene_image(
                 return primary.edit(edit_prompt, refs, negative=merged_negative, api_key=api_key,
                                     model=model, on_preview_url=on_preview_url), primary
             except Exception as e:
-                print(f"  images: scene {index + 1} reference edit failed ({e}); "
-                      "falling back to text-to-image")
+                print(report.note_line(
+                    f"scene {index + 1}: reference edit rejected, "
+                    f"text-to-image instead: {report.brief(e)}"))
 
     if scene.reference_image:
         ref = Path(scene.reference_image)
@@ -232,8 +282,11 @@ def generate_scene_image(
             return data, provider
         except Exception as e:
             last_error = e
-            more = "; trying next" if provider is not chain[-1] else ""
-            print(f"  images: scene {index + 1} via {provider.name} failed ({e}){more}")
+            more = (f", trying {chain[chain.index(provider) + 1].name}"
+                    if provider is not chain[-1] else "")
+            print(report.note_line(
+                f"scene {index + 1}: {provider.name} failed{more}: "
+                f"{report.brief(e)}"))
     raise RuntimeError(f"image generation failed for scene {index + 1}: {last_error}")
 
 
@@ -241,7 +294,9 @@ def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None,
                     work_dir: Path | None = None) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     primary = get_provider(backend)
-    print(f"  images: backend = {primary.name}")
+    drawn = sum(1 for s in plan.scenes if not s.compose)
+    for line in selection_report(primary, forced=backend is not None, scenes=drawn):
+        print(line)
     if plan.characters:
         print("  images: character check (same description substituted in every scene):")
         for i, scene in enumerate(plan.scenes):
@@ -264,7 +319,9 @@ def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None,
                                           work_dir=work_dir)
         path = out_dir / f"scene_{i:02d}.png"
         path.write_bytes(data)
-        note = "" if used is primary else f" (fell back to {used.name})"
-        print(f"  images: scene {i + 1}/{len(plan.scenes)}{note}")
+        print(f"  images: scene {i + 1}/{len(plan.scenes)}")
+        if used is not primary:
+            print(report.note_line(
+                f"scene {i + 1}: image came from {used.name}, not {primary.name}"))
         paths.append(path)
     return paths

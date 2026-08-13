@@ -11,7 +11,8 @@ from pathlib import Path
 
 from ..env import load_env
 from ..schema import ShotPlan
-from . import character_refs, generate_images, generate_scene_image, get_provider
+from . import (character_refs, generate_images, generate_scene_image,
+               get_provider, selection_report)
 
 
 def main() -> None:
@@ -38,6 +39,8 @@ def main() -> None:
                   f"({plan.scenes[args.scene].compose.template}) — no image to regenerate")
             return
         primary = get_provider(args.backend)
+        for line in selection_report(primary, forced=args.backend is not None, scenes=1):
+            print(line)
         # Reuse (or rebuild only the missing) character reference portraits so a
         # single-scene regen keeps the same faces/outfits as the rest of the video,
         # matching the full-run path in generate_images().

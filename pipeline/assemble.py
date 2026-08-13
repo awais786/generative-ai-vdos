@@ -5,9 +5,11 @@ import random
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+from . import report
 from .schema import ShotPlan
 from .styles import load_style
 
@@ -292,15 +294,79 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
     return final
 
 
-def pick_music(music_root: Path, mood: str) -> Optional[Path]:
-    """Pick a random track from music/<mood>/ (fall back to any track)."""
-    if not music_root.exists():
-        return None
+@dataclass(frozen=True, slots=True)
+class MusicChoice:
+    """Which track was picked and — the part that used to be silent — why.
+
+    `source` is "mood" for a real music/<mood>/ hit, "fallback" for a random
+    track from an unrelated mood, "none" when there is no music at all.
+    """
+
+    path: Optional[Path]
+    source: str
+    mood: str
+    root: Path
+    moods_available: tuple[str, ...] = ()
+    mood_dir_exists: bool = False
+
+    @property
+    def matched(self) -> bool:
+        """True only when the track really came from the requested mood."""
+        return self.source == "mood"
+
+
+def choose_music(music_root: Path, mood: str) -> MusicChoice:
+    """Pick a random track from music/<mood>/, falling back to any track.
+
+    Same behaviour as before — some music beats no music — but the caller can
+    now tell a real mood match apart from a random fallback (see music_report).
+    """
     mood_dir = music_root / mood
-    pool = list(mood_dir.glob("*.mp3")) if mood_dir.exists() else []
-    if not pool:
-        pool = list(music_root.rglob("*.mp3"))
-    return random.choice(pool) if pool else None
+    mood_dir_exists = mood_dir.is_dir()
+    moods = tuple(sorted(
+        d.name for d in music_root.iterdir()
+        if d.is_dir() and any(d.glob("*.mp3"))
+    )) if music_root.is_dir() else ()
+
+    pool = list(mood_dir.glob("*.mp3")) if mood_dir_exists else []
+    if pool:
+        return MusicChoice(random.choice(pool), "mood", mood, music_root,
+                           moods, mood_dir_exists)
+    pool = list(music_root.rglob("*.mp3")) if music_root.exists() else []
+    if pool:
+        return MusicChoice(random.choice(pool), "fallback", mood, music_root,
+                           moods, mood_dir_exists)
+    return MusicChoice(None, "none", mood, music_root, moods, mood_dir_exists)
+
+
+def music_report(choice: MusicChoice) -> list[str]:
+    """Header lines for the music pick — with a warning when the mood was missed.
+
+    A wrong-mood soundtrack used to print exactly like a correct one; the
+    warning names the folder that was missing and the moods that do exist.
+    """
+    if choice.path is None:
+        return [report.row("music", "none", f"no .mp3 files under {choice.root}/")]
+    try:
+        label = str(choice.path.relative_to(choice.root))
+    except ValueError:
+        label = choice.path.name
+    if choice.matched:
+        return [report.row("music", label, f"mood '{choice.mood}', free (local file)")]
+
+    folder = report.short_path(choice.root / choice.mood)
+    missing = (f"{folder}/ has no .mp3 files" if choice.mood_dir_exists
+               else f"no {folder}/ folder")
+    return [
+        report.row("music", label, f"RANDOM FALLBACK — mood '{choice.mood}' not matched"),
+        report.warning(f"{missing} — picked a random track from another mood"),
+        report.warning("moods available: " + (", ".join(choice.moods_available) or "none")),
+    ]
+
+
+def pick_music(music_root: Path, mood: str) -> Optional[Path]:
+    """Path-only wrapper kept for callers that don't report the choice."""
+    return choose_music(music_root, mood).path
 
 
 def main() -> None:
@@ -325,14 +391,19 @@ def main() -> None:
     work_dir = Path(args.work_dir) if args.work_dir else latest_work_dir()
     print(f"video folder: {work_dir}")
     plan = ShotPlan.model_validate_json((work_dir / "shot_plan.json").read_text())
+    print(report.row("assemble", "ffmpeg",
+                     f"local render, free, {report.plural(len(plan.scenes), 'scene')}"))
     if args.music:
         music = Path(args.music)
         if not music.is_file():
             import sys
             sys.exit(f"music file not found: {music}")
+        print(report.row("music", music.name, "forced via --music"))
     else:
-        music = pick_music(Path(args.music_dir), plan.music_mood)
-    print(f"  music: {music if music else 'none'}")
+        choice = choose_music(Path(args.music_dir), plan.music_mood)
+        music = choice.path
+        for line in music_report(choice):
+            print(line)
     final = assemble(plan, work_dir, music_path=music)
     print(f"Done: {final}")
 

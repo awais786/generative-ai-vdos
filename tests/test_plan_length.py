@@ -91,7 +91,12 @@ def test_refine_passes_seconds_through(tmp_path, monkeypatch):
         raise SystemExit(0)  # stop before any file is written
 
     monkeypatch.setattr("pipeline.script_agent.generate_shot_plan", fake_generate)
-    monkeypatch.setattr(sys, "argv", ["refine", "a topic", "--seconds", "30"])
+    # --model keeps this hermetic: without it main() calls default_model(),
+    # which needs LLM_PROVIDER in the environment and fails in a clean
+    # checkout or CI.
+    monkeypatch.setattr(sys, "argv",
+                        ["refine", "a topic", "--seconds", "30",
+                         "--model", "gpt-4o-mini"])
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit):
         refine_mod.main()
@@ -108,7 +113,8 @@ def test_refine_without_seconds_passes_none(tmp_path, monkeypatch):
         raise SystemExit(0)
 
     monkeypatch.setattr("pipeline.script_agent.generate_shot_plan", fake_generate)
-    monkeypatch.setattr(sys, "argv", ["refine", "a topic"])
+    monkeypatch.setattr(sys, "argv",
+                        ["refine", "a topic", "--model", "gpt-4o-mini"])
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit):
         refine_mod.main()
