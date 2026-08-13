@@ -244,11 +244,14 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         clip = clips_dir / f"scene_{i:02d}.mp4"
         dur = _duration(mp3) + 0.3  # small breath between scenes
         scene = plan.scenes[i]
-        # An overlay that only repeats the narration would print the same words
-        # the subtitles are already showing. The subtitles win: they are
-        # word-timed and carry accessibility.
+        # A compose card is a designed full-frame composition — a drawtext line
+        # on top of it competes with the card's own typography, so the card is
+        # the scene's only text layer.
+        # Otherwise: an overlay that merely repeats the narration would print
+        # the same words the subtitles are already showing. There the subtitles
+        # win — they are word-timed and carry accessibility.
         overlay_text = scene.on_screen_text
-        if _restates(overlay_text, scene.narration):
+        if scene.compose or _restates(overlay_text, scene.narration):
             overlay_text = None
         overlay = _overlay_filter(overlay_text, style=style)
 

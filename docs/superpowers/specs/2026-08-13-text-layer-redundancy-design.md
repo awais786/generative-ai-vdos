@@ -24,11 +24,20 @@ subtitles printed the same line underneath it.
 
 Measured across the 27 plans in `output/` (164 scenes):
 
-**The collision is between the overlay and the subtitles, not among all three.**
-Scenes carrying both `compose` and `on_screen_text`: **zero**. The model already
-never puts an overlay on a card scene, so the three-way collision does not occur.
-The pairs that do occur are overlay-vs-subtitles (139 scenes) and
-card-vs-subtitles (4 scenes).
+**Scenes carrying both `compose` and `on_screen_text`: zero** across the 27
+plans measured. The pairs that occur there are overlay-vs-subtitles (139 scenes)
+and card-vs-subtitles (4 scenes).
+
+> **Correction, added after implementation.** This finding was used to reject a
+> "the card wins and the other layers stand down" rule as firing on nothing.
+> It described the corpus accurately but did not generalise: the first plan
+> generated after this work — `output/the-greedy-dog` — put
+> `on_screen_text: 'A lesson learned.'` on its `quote` card scene, rendering
+> bold sans above the card's Playfair. Whether the new `on_screen_text` field
+> description made this more likely, or the old 27 plans simply never sampled
+> it, is not established from one occurrence. Either way the case is real, so
+> a card scene now suppresses the overlay unconditionally — see "the two call
+> sites" below.
 
 **Overlays repeat the narration constantly.** Of the 139 scenes with
 `on_screen_text`, comparing its words against its own narration:
@@ -90,14 +99,17 @@ One predicate, two call sites, one field-description change.
 
 ```
 scene i
-  ├─ on_screen_text  ──_restates(text, narration)?──> drop the drawtext overlay
+  ├─ on_screen_text  ──scene has a compose card?─────> drop the drawtext overlay
+  │                  └─_restates(text, narration)?──> drop the drawtext overlay
   ├─ compose.heading ──_restates(head, narration)?──> drop the subtitles
   └─ narration ─────────────────────────────────────> subtitles (unchanged)
 ```
 
 The winner differs by case because the layers differ in kind. Subtitles are
 word-timed and carry accessibility, so against a redundant overlay they stay. A
-card is the scene's entire visual, so against redundant subtitles it wins.
+card is the scene's entire visual, so it wins against redundant subtitles — and
+against any overlay at all, redundant or not, since a bold drawtext line over a
+designed composition competes with the card's own typography.
 
 ## Component: the predicate
 

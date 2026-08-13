@@ -93,6 +93,24 @@ def test_redundant_card_drops_the_subtitles(tmp_path, monkeypatch):
     assert "subtitles" not in graph
 
 
+def test_card_scene_never_draws_an_overlay(tmp_path, monkeypatch):
+    """A card is a designed full-frame composition; a bold drawtext line on top
+    competes with its own typography.
+
+    Observed in output/the-greedy-dog scene 7, where 'A lesson learned.' rendered
+    in bold sans above a Playfair quote card. Note the overlay here does NOT
+    restate the narration, so only the compose check can suppress it -- this
+    test fails if the rule is implemented as a redundancy check alone.
+    """
+    plan = _plan({"media_prompt": "a", "narration": "Moral: Greed is a curse.",
+                  "on_screen_text": "A lesson learned.",
+                  "compose": {"template": "quote", "heading": "Greed is a curse."}})
+    work_dir = _work_dir(tmp_path, "Moral: Greed is a curse.")
+    (work_dir / "video" / "scene_00.mp4").write_bytes(b"mp4")
+    graph = _filtergraph(plan, work_dir, monkeypatch)
+    assert "drawtext" not in graph
+
+
 def test_independent_card_keeps_the_subtitles(tmp_path, monkeypatch):
     # Positive control for trap 2: proves the absence above is suppression,
     # not an empty SRT.
