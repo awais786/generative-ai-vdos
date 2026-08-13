@@ -57,11 +57,66 @@ Details that matter:
 - A failed ref portrait just omits that character — their scenes fall back to text-to-image. A failed edit falls back to text-to-image for that scene. Both are fail-soft by design.
 - `scene.reference_image` (a user-supplied photo) needs an edit-capable backend; if the primary lacks `edit()`, the first available provider with it is used.
 
+## How other tools solve this — and what is worth taking
+
+Surveyed 2026-08-14. The industry converges on the same mechanism this repo
+already uses, with one upgrade available.
+
+**Reference anchoring is the standard, and we have it.** Every serious tool
+anchors each scene to the same character image so the model locks onto face,
+hair and wardrobe. That is exactly `character_refs()` + `provider.edit()`. The
+repo is not behind here.
+
+**Turnaround sheets are the upgrade.** The recommended practice is a reference
+showing the character from *several* angles — front, three-quarter, profile,
+back — with identical clothing and features in each. We render **one** portrait
+per character (`character_refs()`, neutral standing pose), so a scene calling
+for a rear or profile view is extrapolating from a single front view. That is a
+plausible cause of drift on non-frontal shots, and it is a contained change:
+render the portrait as a multi-angle sheet rather than a single pose.
+
+**Platform "Character ID" systems** (Kling and similar) hold identity server-side
+across clips. Not adoptable — it is a property of their hosted model, not a
+technique.
+
+**Negative prompts for exclusion** are the standard answer for unwanted content,
+which matches `global_negative`. Nothing better was found; the industry has the
+same problem and the same blunt tool.
+
+Sources: [Kling character consistency guide](https://kling.ai/blog/ai-character-consistency-guide),
+[PixVerse](https://pixverse.ai/en/blog/ai-video-generator-with-character-consistency),
+[BachVid (arXiv 2510.21696)](https://arxiv.org/pdf/2510.21696).
+
 ## Per-provider quirks
 
 - **qwen-image** (`qwen_image.py`): generates 1664x928, then `fit_cover()` crops to exactly 1920x1080. `prompt_extend: false` is deliberate — DashScope's prompt rewriter kept adding rendered captions to images. Response URLs are temporary (24h) — always download immediately. Needs `DASHSCOPE_API_KEY` (+ optional `DASHSCOPE_API_URL` workspace endpoint).
 - **gpt-image-1**: best instruction-following — the escape hatch when qwen ignores a negative. Explicit opt-in only.
 - **placeholder**: renders labeled gradient frames locally; the free no-keys test path.
+- **gemini-image** (nano banana): multi-reference editing and strong subject
+  consistency, so it can drive `character_refs()` — but PAID with no free tier
+  and the dearest here (~$0.10/image at 2K). Explicit `--backend` only.
+
+## Reviewing a generated image — look for what you did not ask for
+
+The usual failure is not a bad rendering of the prompt. It is a **good**
+rendering of the prompt plus something invented. Models fill a frame with what
+normally accompanies the subject, and that filler is invisible in the prompt,
+invisible in the plan, and only visible in the image.
+
+**Observed:** *The Thirsty Crow*, cast of one crow, storybook preset. Two of
+four images came back with a red-haired boy watching the crow. The prompts were
+correct; nothing excluded a person, and children's-storybook art is full of
+children.
+
+So when you review a batch, do not only ask "does this match the prompt?" Ask
+**"is anything here that the story never mentioned?"** — an extra person, a
+second animal, an anachronistic object, a sign with invented text.
+
+The fix is `global_negative`, not a scene rewrite: the addition applies to every
+scene and the exclusion is video-wide. See the `shot-plan` skill. Then
+regenerate only the affected scenes with
+`python -m pipeline.images <dir> --scene N` — never re-run the whole stage and
+re-spend on the images that were already right.
 
 ## Adding a new backend — checklist
 

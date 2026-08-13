@@ -38,6 +38,30 @@ Diffusion models condition **toward** every token in the prompt — "no beard" p
 
 All three merge automatically (`global_negative` + per-character + per-scene). Don't rely on `scene.negative_prompt` for a persistent character trait — you'll miss scenes.
 
+### The absent thing nobody excluded
+
+The hardest negatives are for things the prompt never mentions. An image model
+does not draw only what you asked for — it fills the frame with whatever
+usually accompanies it, and it is very good at knowing what that is.
+
+**Observed:** *The Thirsty Crow*, storybook preset, cast of one crow. Scene
+prompt: a crow beside a pitcher in a sunny garden. Two of the four images came
+back with **a red-haired boy watching the crow** — because children's-storybook
+illustrations of animals are full of children, and nothing in the prompt said
+otherwise. `global_negative` was the generic
+`"changing hairstyle, inconsistent clothing, different face, extra limbs, blurry"`,
+none of which excludes a person.
+
+So: **when the cast has no people in it, say so.** Add
+`"people, human, boy, girl, child, man, woman, person, hands"` to
+`global_negative`. `script_agent`'s prompt now instructs the model to do this
+for animal- and object-only casts, but check it — the same reasoning applies to
+any category the story excludes: no cars in a medieval scene, no modern
+buildings in a historical one, no second animal in a solo-animal fable.
+
+Ask of every plan: *what is this story definitely NOT about?* That answer
+belongs in `global_negative`, and nothing else in the pipeline will supply it.
+
 If qwen still draws the unwanted trait (strong priors), regenerate just that scene with `--backend gpt-image-1` — it follows instructions much better (explicit opt-in only; money rule in CLAUDE.md).
 
 ## Scene fields worth knowing
