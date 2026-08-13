@@ -105,11 +105,16 @@ assembly warns and the overlays are skipped while captions still render.
 |---|---|---|---|
 | `OPENAI_API_KEY` | Shot plan (gpt-4o-mini) + images (gpt-image-1, never auto-selected — requires explicit `--backend gpt-image-1`) | [platform.openai.com](https://platform.openai.com/api-keys) | ~$0.001/plan, ~$0.01–0.02/image |
 | `ANTHROPIC_API_KEY` | Shot plan (Claude) — alternative to OpenAI | [console.anthropic.com](https://console.anthropic.com/) | ~$0.001/plan |
-| `DASHSCOPE_API_KEY` | Images (`qwen-image`, free quota, always tried first) + animation (Wan i2v) | [Alibaba Model Studio](https://modelstudio.console.alibabacloud.com) — **pick the Singapore region**; new accounts get free image quota and ~1,650s of video credit (90 days) | free quota, then ~$0.02/image, ~$0.07–0.10/clip |
+| `DASHSCOPE_API_KEY` **+ `QWEN_IMAGE_MODEL`** | Images (`qwen-image`, free quota, tried first) + animation (Wan i2v). **Both are required** — the model id has no default, and with the key alone the backend reports unavailable rather than failing mid-run | [Alibaba Model Studio](https://modelstudio.console.alibabacloud.com) — **pick the Singapore region**; new accounts get free image quota and ~1,650s of video credit (90 days) | free quota, then ~$0.02/image, ~$0.07–0.10/clip |
 | `REPLICATE_API_TOKEN` | Images via Flux Schnell (free tier, tried second; also `pip install replicate`) | [replicate.com](https://replicate.com/) | ~$0.003/image |
 | `PEXELS_API_KEY` | Free stock photos instead of AI images | [pexels.com/api](https://www.pexels.com/api/) | free |
 
 Minimum: one LLM key (OpenAI or Anthropic). With no image key the pipeline renders gradient placeholders so the whole flow can be tested for $0.
+
+`IMAGE_BACKEND` in `.env` picks the default backend (`qwen` | `flux` | `stock` | `placeholder`).
+It **cannot** select a paid backend: `IMAGE_BACKEND=openai` is refused with a message, because
+gpt-image-1 must be chosen on the command line where the spend is visible. Run `make preflight`
+to see which backends are actually usable on your machine.
 
 ## Workflow
 
@@ -152,7 +157,7 @@ python -m pipeline.images --scene 2
 python -m pipeline.images --scene 2 --backend gpt-image-1
 ```
 
-### Steps 3–5 — animate, voice, assemble
+### Steps 3–6 — animate, voice, compose, assemble
 
 ```bash
 # Animation is currently DISABLED (to avoid accidental DashScope charges).
@@ -160,10 +165,22 @@ python -m pipeline.images --scene 2 --backend gpt-image-1
 # python -m pipeline.video
 
 python -m pipeline.voiceover     # per-scene voices from the plan, word timestamps for captions
+python -m pipeline.compose       # REQUIRED if the plan has any `compose` card scene
 python -m pipeline.assemble      # music picked by mood from music/, or:
 python -m pipeline.assemble --music path/to/track.mp3
 open output/<name>/final.mp4
 ```
+
+`pipeline.compose` renders title / quote / lower-third / outro cards with Remotion
+straight into `video/scene_NN.mp4`. Skip it when the plan has a card scene and assembly
+fails on the missing clip — `pipeline.refine` prints the compose line in its "next steps"
+whenever the plan needs it. It is free and local, and needs `npm install --prefix remotion` once.
+
+**Text layers coordinate automatically.** Each scene shows one text layer, not three: an
+`on_screen_text` overlay that merely repeats a phrase from the narration is dropped (the
+burned-in captions already show those words), and a scene with a `compose` card draws no
+overlay at all, since the card is the designed frame. Short labels like `ARGENTINA` and
+call-to-action text are never suppressed.
 
 All stage commands accept an explicit folder (`python -m pipeline.images output/<name>`) to work on an older video instead of the latest.
 

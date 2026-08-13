@@ -13,6 +13,26 @@ AI video pipeline: rough text idea → shot plan JSON → AI images → optional
 TTS voiceover → FFmpeg assembly → `output/<name>/final.mp4`. See README.md for the full
 user guide; this file covers what an agent needs to work on the codebase safely.
 
+## Skills (read the matching one before touching a stage)
+
+Project skills in `.claude/skills/` carry the deep, per-stage how-to knowledge and gotchas.
+This file is the safety overview; the skills are the manual. **If there's even a 1% chance a
+skill applies to what you're doing, invoke it.**
+
+| Skill | Use when working on |
+|---|---|
+| `shot-plan` | `shot_plan.json`, characters/placeholders, negatives, outfits, `animate`, compose scenes, style presets |
+| `image-backends` | `pipeline/images/` — adding a provider, fallback/priority, character reference edits, qwen/gpt-image quirks |
+| `voiceover-tts` | `pipeline/voiceover.py` — edge-tts, voices, WordBoundary timings, missing-audio/caption debugging |
+| `remotion-compose` | the compose track — title/quote/lower-third/outro cards, templates, palettes, `remotion/src/` |
+| `ffmpeg-assembly` | `pipeline/assemble.py` — Ken Burns, captions/subtitles, overlays, music mix, timing, failed renders |
+
+Those cover *changing* a stage. The stage-director skills — `plan-director`,
+`images-director`, `voiceover-director`, `compose-director`, `assemble-director`,
+and `creative-intake` before them — cover *running* one; `AGENT_GUIDE.md` routes to those.
+
+(The web app has its own skill rules — see "Webapp development rules" below.)
+
 ## Commands
 
 ```bash
