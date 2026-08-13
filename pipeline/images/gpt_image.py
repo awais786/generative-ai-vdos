@@ -27,8 +27,24 @@ class GptImageProvider(ImageProvider):
     # selection time — after the plan had already been paid for.
     env_required = ("OPENAI_API_KEY", "OPENAI_IMAGE_MODEL")
     model_env = "OPENAI_IMAGE_MODEL"
-    # From this module's docstring; generate() hardcodes quality="low".
-    cost = "PAID ~$0.01-0.02/image"
+    # NOT a fixed string: OPENAI_IMAGE_MODEL is configurable, and the rate
+    # follows the model. A per-backend figure quoted the gpt-image-1 price
+    # while a run generated on gpt-image-2 — the money guard was model-blind.
+    # Every figure here is copied from a provider docstring; an unknown model
+    # says so rather than guessing.
+    _MODEL_COST = {
+        # This module's docstring; generate() hardcodes quality="low".
+        "gpt-image-1": "PAID ~$0.01-0.02/image",   # generate() hardcodes quality="low"
+    }
+
+    @property
+    def cost(self) -> str:
+        model = os.environ.get(self.model_env or "", "").strip()
+        if not model:
+            return "PAID — no model set"
+        known = self._MODEL_COST.get(model)
+        return f"{known} ({model})" if known else (
+            f"PAID — rate unknown for {model}")
     paid = True
     can_edit = True
 

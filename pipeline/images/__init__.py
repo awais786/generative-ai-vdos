@@ -48,6 +48,8 @@ AUTO_EXCLUDE = {p.name for p in PROVIDERS if p.paid}
 
 #: What each backend costs, stated in the run header so a paid pick is never a
 #: surprise. Each figure is copied from the provider module's own docstring.
+#: A SNAPSHOT taken at import — a provider whose rate depends on a configurable
+#: model resolves it dynamically, so read `provider.cost` for the live value.
 PROVIDER_COST = {p.name: p.cost for p in PROVIDERS}
 
 
@@ -86,7 +88,9 @@ def selection_report(primary: ImageProvider, forced: bool,
     understated a real run by 4 images out of 11."""
     source = ("forced via --backend/IMAGE_BACKEND" if forced
               else (primary.requires or "no key needed"))
-    cost = PROVIDER_COST.get(primary.name, "cost unknown")
+    # primary.cost, not the PROVIDER_COST snapshot: a backend whose rate
+    # depends on a configurable model resolves it at call time.
+    cost = getattr(primary, "cost", "") or "cost unknown"
     if scenes is None:
         count = ""
     elif refs:
