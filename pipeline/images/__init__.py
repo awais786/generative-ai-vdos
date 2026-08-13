@@ -15,6 +15,7 @@ from ..schema import ShotPlan
 from ..styles import load_style
 from .base import ImageProvider
 from .flux import FluxProvider
+from .gemini_image import GeminiImageProvider
 from .gpt_image import GptImageProvider
 from .pexels import PexelsProvider
 from .placeholder import PlaceholderProvider
@@ -26,6 +27,7 @@ PROVIDERS: list[ImageProvider] = [
     PexelsProvider(),
     PlaceholderProvider(),
     GptImageProvider(),   # paid — never auto-selected, use --backend gpt-image-1 explicitly
+    GeminiImageProvider(),  # paid, no free tier — --backend gemini (nano banana)
 ]
 
 
