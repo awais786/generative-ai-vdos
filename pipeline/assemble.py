@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .schema import ShotPlan
+from .styles import load_style
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,23 @@ _FONT = next((f for f in [
 ] if Path(f).exists()), None)
 
 
-def _overlay_filter(text: Optional[str]) -> str:
+def _hex_to_ass(hex_colour: str) -> str:
+    """#rrggbb -> &HAABBGGRR for libass force_style.
+
+    libass stores colours blue-first with alpha leading. Handing it an #rrggbb
+    string produces a wrong-but-plausible colour and no error, so every colour
+    reaching force_style must come through here.
+    """
+    h = hex_colour.lstrip("#")
+    return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()
+
+
+def _hex_to_drawtext(hex_colour: str) -> str:
+    """#rrggbb -> 0xrrggbb for ffmpeg drawtext fontcolor."""
+    return "0x" + hex_colour.lstrip("#").lower()
+
+
+def _overlay_filter(text: Optional[str], style: dict | None = None) -> str:
     """drawtext filter chunk for the scene's on_screen_text (top center), or ''."""
     if not text or _FONT is None:
         return ""
@@ -53,8 +70,14 @@ def _overlay_filter(text: Optional[str]) -> str:
                .replace(":", "\\:").replace("%", "\\%")
                .replace("[", "\\[").replace("]", "\\]")
                .replace(",", "\\,").replace(";", "\\;"))
-    return (f",drawtext=fontfile='{_FONT}':text='{esc}':fontsize=58:fontcolor=white:"
-            f"borderw=3:bordercolor=black@0.8:x=(w-text_w)/2:y=70")
+    text_cfg = (style or {}).get("text") or {}
+    palette = (style or {}).get("palette") or {}
+    size = text_cfg.get("overlay_size", 58)
+    border = text_cfg.get("overlay_border", 3)
+    colour = _hex_to_drawtext(palette["fg"]) if palette.get("fg") else "white"
+    return (f",drawtext=fontfile='{_FONT}':text='{esc}':fontsize={size}:"
+            f"fontcolor={colour}:borderw={border}:bordercolor=black@0.8:"
+            f"x=(w-text_w)/2:y=70")
 
 
 def _run(cmd: List[str], cwd: Optional[Path] = None, timeout: int = 15 * 60,
@@ -126,12 +149,17 @@ def _build_scene_srt(words_json: Path, srt_path: Path) -> None:
     srt_path.write_text("\n".join(lines))
 
 
-def _subtitle_filter(rel_path: str, srt_path: Path) -> str:
+def _subtitle_filter(rel_path: str, srt_path: Path, style: dict | None = None) -> str:
     """subtitles= chunk (path relative to ffmpeg cwd), or '' if no SRT."""
     if not srt_path.is_file() or srt_path.stat().st_size == 0:
         return ""
+    text = (style or {}).get("text") or {}
+    palette = (style or {}).get("palette") or {}
+    size = text.get("caption_size", 18)
+    outline = text.get("caption_outline", 2)
+    colour = f",PrimaryColour={_hex_to_ass(palette['fg'])}" if palette.get("fg") else ""
     return (f",subtitles={rel_path}:force_style="
-            f"'FontSize=18,Bold=1,Outline=2,MarginV=40'")
+            f"'FontSize={size},Bold=1,Outline={outline},MarginV=40{colour}'")
 
 
 def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) -> Path:
@@ -151,6 +179,9 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
     audio_dir = work_dir / "audio"
     clips_dir = work_dir / "clips"
     clips_dir.mkdir(exist_ok=True)
+    # One read for the whole render: captions and overlays take their size and
+    # colour from the same style the images and compose cards used.
+    style = load_style(work_dir)
 
     missing_audio = [i for i in range(len(plan.scenes))
                      if not (audio_dir / f"scene_{i:02d}.mp3").is_file()]
@@ -179,7 +210,7 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         mp3 = audio_dir / f"scene_{i:02d}.mp3"
         clip = clips_dir / f"scene_{i:02d}.mp4"
         dur = _duration(mp3) + 0.3  # small breath between scenes
-        overlay = _overlay_filter(plan.scenes[i].on_screen_text)
+        overlay = _overlay_filter(plan.scenes[i].on_screen_text, style=style)
 
         t_srt = time.perf_counter()
         words_json = audio_dir / f"scene_{i:02d}.words.json"
@@ -187,7 +218,7 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         _build_scene_srt(words_json, srt_path)
         srt_wall += time.perf_counter() - t_srt
         # ffmpeg cwd=work_dir so libass sees a clean relative path
-        subs = _subtitle_filter(f"audio/scene_{i:02d}.srt", srt_path)
+        subs = _subtitle_filter(f"audio/scene_{i:02d}.srt", srt_path, style=style)
 
         if vid.exists():
             scenes_wall += _run([

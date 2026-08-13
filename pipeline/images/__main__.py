@@ -41,14 +41,15 @@ def main() -> None:
         # Reuse (or rebuild only the missing) character reference portraits so a
         # single-scene regen keeps the same faces/outfits as the rest of the video,
         # matching the full-run path in generate_images().
-        refs = character_refs(plan, primary, out_dir)
+        refs = character_refs(plan, primary, out_dir, work_dir=work_dir)
         data, used = generate_scene_image(plan, args.scene, primary,
-                                          fallback=args.backend is None, char_refs=refs)
+                                          fallback=args.backend is None, char_refs=refs,
+                                          work_dir=work_dir)
         path = out_dir / f"scene_{args.scene:02d}.png"
         path.write_bytes(data)
         print(f"regenerated {path} via {used.name}")
     else:
-        generate_images(plan, out_dir, backend=args.backend)
+        generate_images(plan, out_dir, backend=args.backend, work_dir=work_dir)
 
 
 if __name__ == "__main__":

@@ -163,6 +163,17 @@ class ShotPlan(BaseModel):
         "'changing hairstyle, inconsistent clothing, different face, text, watermark, "
         "extra limbs, blurry'. Merged with per-character and per-scene negatives automatically.",
     )
+    palette: Optional[dict[str, str]] = Field(
+        default=None,
+        description=(
+            "Four hex colours matching style_prefix, for the text cards and "
+            "captions so they match the generated images: bg1 (darkest "
+            "background), bg2 (lighter background for a gradient), fg (text, "
+            "high contrast against bg1), accent (a highlight drawn from the "
+            "imagery). Format #rrggbb. Omit only if the style is purely "
+            "photographic with no dominant colour."
+        ),
+    )
     scenes: List[Scene] = Field(description="8-15 scenes. Scene durations come from the voiceover audio.")
 
     @model_validator(mode="after")
@@ -198,6 +209,7 @@ class ShotPlan(BaseModel):
         scene_outfit: dict[str, str] | None = None,
         *,
         include_style_overhead: bool = False,
+        extra_overhead: int = 0,
     ) -> str:
         """Replace character references with their full descriptions.
 
@@ -219,6 +231,10 @@ class ShotPlan(BaseModel):
         that do not prepend style_prefix (motion prompts, refine display, …)
         should leave it False to avoid premature compaction.
 
+        *extra_overhead* reserves space for anything else the caller appends
+        that this plan cannot see — the style's consistency anchors live in
+        work_dir/style.json, not on the ShotPlan.
+
         Returns "" for compose scenes (media_prompt/motion is None).
         """
         if not text:
@@ -226,7 +242,10 @@ class ShotPlan(BaseModel):
         scene_outfit = scene_outfit or {}
         budget = max_chars
         if include_style_overhead:
-            budget -= len(self.style_prefix) + 2  # ", " separator added by caller
+            # style_prefix is prepended by the caller; extra_overhead covers
+            # anything else the caller appends (the style's consistency anchors,
+            # which live in style.json rather than on the plan).
+            budget -= len(self.style_prefix) + 2 + extra_overhead  # ", " separator
         result = self._expand_once(text, scene_outfit, compact_after=None)
         refs = self.characters_in(text, by_position=True)
         if len(refs) >= 3 and len(result) > budget:

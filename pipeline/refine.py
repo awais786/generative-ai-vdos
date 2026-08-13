@@ -22,6 +22,35 @@ from pathlib import Path
 
 from .env import load_env
 from .schema import ShotPlan
+# Imported at module level (both are cheap, stdlib/pydantic only) so
+# _finalize_plan_artifacts resolves them as module attributes — that is what
+# makes the "refine first, then persist" ordering testable.
+from .script_agent import refine_plan
+from .styles import save_style, style_for_plan
+
+
+def _finalize_plan_artifacts(*, plan, work_dir, preset, persist_style,
+                             model, animate, do_polish, do_review, on_write):
+    """Run the refinement passes, then persist the resolved style.
+
+    save_style runs last on purpose: refine_plan() returns a fresh ShotPlan
+    parsed from the LLM, so a style file written before it would be describing a
+    superseded plan. For the same reason the model-proposed palette is read
+    *here*, from the plan that survived refinement — not in the caller's
+    argument expression, which Python evaluates before this function is even
+    entered and which would therefore persist the pre-refinement colours.
+
+    persist_style is the caller's guard, threaded in rather than folded into
+    `preset`, so that the palette read stays on this side of the refinement.
+    """
+    if do_polish or do_review:
+        plan = refine_plan(
+            plan, model=model, animate=animate,
+            polish=do_polish, review=do_review, on_write=on_write,
+        )
+    if persist_style:
+        save_style(work_dir, style_for_plan(preset, getattr(plan, "palette", None)))
+    return plan
 
 
 def print_plan(plan: ShotPlan, work_dir: Path) -> None:
@@ -90,7 +119,7 @@ def main() -> None:
                         help="Output folder name for a new plan (default: timestamp)")
     parser.add_argument("--model", default=None,
                         help="Override the model id (default: resolved from LLM_PROVIDER)")
-    parser.add_argument("--style", default=os.environ.get("VIDEO_STYLE"),
+    parser.add_argument("--style", default=None,
                         help="Style preset name, 'list' to show all, or "
                              "'custom:your description' (.env: VIDEO_STYLE)")
     args = parser.parse_args()
@@ -99,7 +128,11 @@ def main() -> None:
         args.model = default_model()  # errors if LLM_PROVIDER not set
 
     from .styles import resolve_style
-    style = resolve_style(args.style)
+    # VIDEO_STYLE still supplies a default, but only an explicitly typed --style
+    # may (re)write an existing video's style.json. Otherwise setting VIDEO_STYLE
+    # in .env would silently repaint every older project you merely looked at.
+    style_explicit = args.style is not None
+    style = resolve_style(args.style if style_explicit else os.environ.get("VIDEO_STYLE"))
 
     if args.input is None:
         from .run import latest_work_dir
@@ -144,13 +177,25 @@ def main() -> None:
     # pipeline.refine has no --animate flag, so plans start animation-free.
     do_polish = args.polish or (not is_existing_plan and not args.no_polish)
     do_review = args.polish or not is_existing_plan
-    if do_polish or do_review:
-        from .script_agent import refine_plan
-        plan = refine_plan(
-            plan, model=args.model, animate=False,
-            polish=do_polish, review=do_review,
-            on_write=lambda p: (work_dir / "shot_plan.json").write_text(p.model_dump_json(indent=2)),
-        )
+    plan = _finalize_plan_artifacts(
+        plan=plan, work_dir=work_dir,
+        # With no preset, the helper falls back to the palette the model
+        # proposed for this plan — otherwise the compose card picks its colours
+        # from music_mood and disagrees with style_prefix. A preset always wins
+        # (style_for_plan), and the palette is read inside the helper so it
+        # comes from the plan that survived refinement.
+        preset=style,
+        # Only persist a style when this invocation is actually establishing one:
+        # a brand-new plan, or a typed --style on an existing one. Persisting
+        # unconditionally would let `python -m pipeline.refine <dir>` — the plain
+        # "view this plan" command — silently rewrite an older video's style.json
+        # from the VIDEO_STYLE env default, which is the same class of bug
+        # (something unrelated picks the colours) this whole design removes.
+        persist_style=(not is_existing_plan or style_explicit),
+        model=args.model, animate=False,
+        do_polish=do_polish, do_review=do_review,
+        on_write=lambda p: (work_dir / "shot_plan.json").write_text(p.model_dump_json(indent=2)),
+    )
 
     if not is_existing_plan:
         # Mark the plan stage done only after polish + consistency review have
