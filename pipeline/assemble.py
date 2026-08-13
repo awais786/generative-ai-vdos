@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 FPS = 30
 
+#: style.json is a user-editable sidecar, and load_style() is documented never
+#: to raise — so a hand-edited "#fff" or "red" reached ffmpeg as a garbage
+#: colour or an opaque filter-parse abort. Anything not matching falls back.
+_HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{6}")
+
 # Ken Burns motion patterns — cycles through each scene in order.
 # Each entry: (zoom_expr, x_expr, y_expr)
 # `on` = current output frame number; `iw`/`ih`/`zoom` = ffmpeg zoompan variables.
@@ -115,6 +120,29 @@ def _restates(text: Optional[str], narration: Optional[str]) -> bool:
     return f" {flat} " in f" {spoken} "
 
 
+#: Minimum luma (ITU-R BT.709, 0-255) for a fill colour burned over imagery.
+#: Below this it competes with the dark outline the filters always apply.
+_MIN_BURN_IN_LUMA = 140
+
+
+def _burn_in_colour(palette: dict) -> str | None:
+    """The style's text colour, but only when it is light enough to burn in.
+
+    `palette["fg"]` is a CARD colour — schema.py defines it as "high contrast
+    against bg1", a known background. Captions and overlays sit over arbitrary
+    photographs with a dark outline, so a dark fg renders dark-on-dark and
+    effectively disappears: storybook's parchment card gives fg #3b2a1a, which
+    vanished over its own bright illustrations. Returns None when the caller
+    should use white instead.
+    """
+    fg = palette.get("fg")
+    if not fg or not _HEX_COLOUR.fullmatch(fg):
+        return None
+    r, g, b = (int(fg[i:i + 2], 16) for i in (1, 3, 5))
+    luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return fg if luma >= _MIN_BURN_IN_LUMA else None
+
+
 def _overlay_filter(text: Optional[str], style: dict | None = None) -> str:
     """drawtext filter chunk for the scene's on_screen_text (top center), or ''."""
     if not text or _FONT is None:
@@ -132,7 +160,8 @@ def _overlay_filter(text: Optional[str], style: dict | None = None) -> str:
     palette = (style or {}).get("palette") or {}
     size = text_cfg.get("overlay_size", 58)
     border = text_cfg.get("overlay_border", 3)
-    colour = _hex_to_drawtext(palette["fg"]) if palette.get("fg") else "white"
+    safe = _burn_in_colour(palette)
+    colour = _hex_to_drawtext(safe) if safe else "white"
     return (f",drawtext=fontfile='{_font_arg(_FONT)}':text='{esc}':fontsize={size}:"
             f"fontcolor={colour}:borderw={border}:bordercolor=black@0.8:"
             f"x=(w-text_w)/2:y=70")
@@ -215,7 +244,8 @@ def _subtitle_filter(rel_path: str, srt_path: Path, style: dict | None = None) -
     palette = (style or {}).get("palette") or {}
     size = text.get("caption_size", 18)
     outline = text.get("caption_outline", 2)
-    colour = f",PrimaryColour={_hex_to_ass(palette['fg'])}" if palette.get("fg") else ""
+    safe = _burn_in_colour(palette)
+    colour = f",PrimaryColour={_hex_to_ass(safe)}" if safe else ""
     return (f",subtitles={rel_path}:force_style="
             f"'FontSize={size},Bold=1,Outline={outline},MarginV=40{colour}'")
 
@@ -262,6 +292,15 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
     # Without a font, _overlay_filter returns '' and every overlay disappears
     # from the finished video without raising anything. Say so once, up front,
     # rather than letting the user discover it on playback.
+    suppressed = [i for i, s in enumerate(plan.scenes)
+                  if s.on_screen_text and (s.compose or _restates(s.on_screen_text, s.narration))]
+    if suppressed:
+        # Every other stage announces what it chose; this one quietly dropped
+        # authored text. Name the scenes so the choice is reviewable.
+        print(report.note_line(
+            f"overlay suppressed on scene {', '.join(str(i) for i in suppressed)} "
+            f"(already spoken in the narration, or the scene is a card)"))
+
     if _FONT is None:
         wanted = sum(1 for s in plan.scenes if s.on_screen_text and not s.compose)
         if wanted:

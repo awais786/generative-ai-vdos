@@ -128,13 +128,16 @@ def render_compositions(plan: ShotPlan, work_dir: Path) -> list[Path]:
 
     print(report.row("compose", "remotion",
                      f"local render, free, {report.plural(len(compose_scenes), 'card scene')}"))
+    # One read of the sidecar, shared by the palette and the line that reports
+    # where it came from — this used to load style.json twice and re-import
+    # load_style locally, shadowing the module-level import.
+    styled_palette = bool(load_style(work_dir).get("palette")) if work_dir else False
     palette = _palette_for(plan, work_dir)
     # Report where the palette actually came from. The style sidecar wins, and
     # when it exists the music mood is irrelevant — so the pre-style message
     # ("no palette for mood X") would be actively misleading there. Only warn
     # about the mood when the mood is genuinely what got used.
-    from ..styles import load_style
-    if load_style(work_dir).get("palette"):
+    if styled_palette:
         print(report.note_line("palette: from the video's style"))
     elif (plan.music_mood or "").strip().lower() not in MOOD_PALETTES:
         print(report.note_line(

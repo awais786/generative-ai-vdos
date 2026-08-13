@@ -47,7 +47,15 @@ def main() -> None:
                   f"({plan.scenes[args.scene].compose.template}) — no image to regenerate")
             return
         primary = get_provider(args.backend)
-        for line in selection_report(primary, forced=args.backend is not None, scenes=1):
+        # Count the portraits this regen would still have to render. On the
+        # single-scene path they are often the ONLY extra spend, so omitting
+        # them understated exactly the run a user reaches for after a bad scene.
+        ref_dir = out_dir / "refs"
+        pending_refs = (sum(1 for c in plan.characters
+                            if not (ref_dir / f"{c.name}.png").is_file())
+                        if plan.characters and hasattr(primary, "edit") else 0)
+        for line in selection_report(primary, forced=args.backend is not None,
+                                     scenes=1, refs=pending_refs):
             print(line)
         # Reuse (or rebuild only the missing) character reference portraits so a
         # single-scene regen keeps the same faces/outfits as the rest of the video,

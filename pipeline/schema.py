@@ -178,7 +178,8 @@ class ShotPlan(BaseModel):
             "photographic with no dominant colour."
         ),
     )
-    scenes: List[Scene] = Field(description="8-15 scenes. Scene durations come from the voiceover audio.")
+    scenes: List[Scene] = Field(
+        description="2-12 scenes. Scene durations come from the voiceover audio.")
 
     @model_validator(mode="after")
     def cap_animated_scenes(self) -> "ShotPlan":

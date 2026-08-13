@@ -125,17 +125,21 @@ def probe_images() -> list[Capability]:
             caps.append(Capability("images", name, State.PAID, detail, hint=hint))
             continue
 
-        if not provider.available():
-            caps.append(Capability("images", name, State.MISSING,
-                                   f"{need} not set", hint=f"set {need} in .env"))
-            continue
-
+        # The specific gap is checked FIRST. available() now folds the extra
+        # vars into its own answer (qwen needs QWEN_IMAGE_MODEL as well as the
+        # key), so testing availability first made this branch unreachable and
+        # told a user with DASHSCOPE_API_KEY already set to go and set it.
         if missing_extra:
             joined = ", ".join(missing_extra)
             caps.append(Capability(
                 "images", name, State.MISSING,
-                f"{need} is set but {joined} is not — generation would fail",
+                f"{joined} not set — the API key is present, but generation would fail",
                 hint=f"set {joined} in .env"))
+            continue
+
+        if not provider.available():
+            caps.append(Capability("images", name, State.MISSING,
+                                   f"{need} not set", hint=f"set {need} in .env"))
             continue
 
         state = State.METERED if name in METERED_BACKENDS else State.AVAILABLE

@@ -57,7 +57,7 @@ def main() -> None:
     # passing the flag on the command line still overrides the .env value.
     parser.add_argument("--approve", action="store_true", default=_flag("AUTO_APPROVE"),
                         help="Proceed past the shot-plan review gate (.env: AUTO_APPROVE)")
-    parser.add_argument("--voice", default=os.environ.get("NARRATOR_VOICE"),
+    parser.add_argument("--voice", default=None,
                         help="Narrator voice (.env: NARRATOR_VOICE; default: voiceover.DEFAULT_VOICE)")
     parser.add_argument("--model", default=None,
                         help="Override the model id (default: resolved from LLM_PROVIDER)")
@@ -65,7 +65,7 @@ def main() -> None:
     parser.add_argument("--music-dir", default="music")
     parser.add_argument("--name", default=None,
                         help="Output folder name (default: slug of the topic text)")
-    parser.add_argument("--image-backend", default=os.environ.get("IMAGE_BACKEND"),
+    parser.add_argument("--image-backend", default=None,
                         help="Force an image provider (.env: IMAGE_BACKEND; see "
                              "pipeline/images: flux-schnell, gpt-image-1, pexels, placeholder)")
     parser.add_argument("--animate", action="store_true", default=_flag("ANIMATE"),
@@ -83,6 +83,16 @@ def main() -> None:
                         help="Target video length; sets the scene count "
                              "(default: the prompt's own 60-90s guidance)")
     args = parser.parse_args()
+    # Deliberately not an argparse default: IMAGE_BACKEND must not be able to
+    # select a paid backend on its own. pipeline.auto routes through here, so
+    # leaving this out meant the one-shot path still billed gpt-image-1 from
+    # .env alone — the very hole resolve_backend_arg exists to close.
+    from .images import resolve_backend_arg
+    try:
+        args.image_backend = resolve_backend_arg(
+            args.image_backend, os.environ.get("IMAGE_BACKEND"))
+    except RuntimeError as e:
+        sys.exit(str(e))
     forced_model = args.model is not None
     if not args.model:
         from .script_agent import default_model
@@ -173,10 +183,15 @@ def main() -> None:
     if "voice" not in state["done"]:
         from .voiceover import DEFAULT_VOICE, generate_voiceover, voice_report
         print("stage: voiceover")
-        for line in voice_report(plan, args.voice or DEFAULT_VOICE,
-                                 forced=bool(args.voice)):
+        # NARRATOR_VOICE still sets the voice, but only a typed --voice counts
+        # as "forced" in the header. Defaulting the flag to the env var made the
+        # report claim the user chose a voice they never mentioned — the same
+        # env-vs-explicit conflation fixed for --style and --image-backend.
+        voice = args.voice or os.environ.get("NARRATOR_VOICE") or None
+        for line in voice_report(plan, voice or DEFAULT_VOICE,
+                                 forced=args.voice is not None):
             print(line)
-        generate_voiceover(plan, work_dir / "audio", voice=args.voice)
+        generate_voiceover(plan, work_dir / "audio", voice=voice)
         state["done"].append("voice")
         save_state(work_dir, state)
     if args.until == "voice":
