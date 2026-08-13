@@ -57,7 +57,7 @@ def main() -> None:
     # passing the flag on the command line still overrides the .env value.
     parser.add_argument("--approve", action="store_true", default=_flag("AUTO_APPROVE"),
                         help="Proceed past the shot-plan review gate (.env: AUTO_APPROVE)")
-    parser.add_argument("--voice", default=os.environ.get("NARRATOR_VOICE"),
+    parser.add_argument("--voice", default=None,
                         help="Narrator voice (.env: NARRATOR_VOICE; default: voiceover.DEFAULT_VOICE)")
     parser.add_argument("--model", default=None,
                         help="Override the model id (default: resolved from LLM_PROVIDER)")
@@ -65,7 +65,7 @@ def main() -> None:
     parser.add_argument("--music-dir", default="music")
     parser.add_argument("--name", default=None,
                         help="Output folder name (default: slug of the topic text)")
-    parser.add_argument("--image-backend", default=os.environ.get("IMAGE_BACKEND"),
+    parser.add_argument("--image-backend", default=None,
                         help="Force an image provider (.env: IMAGE_BACKEND; see "
                              "pipeline/images: flux-schnell, gpt-image-1, pexels, placeholder)")
     parser.add_argument("--animate", action="store_true", default=_flag("ANIMATE"),
@@ -79,13 +79,29 @@ def main() -> None:
     parser.add_argument("--style", default=os.environ.get("VIDEO_STYLE"),
                         help="Style preset name, 'list' to show all, or "
                              "'custom:your description' (.env: VIDEO_STYLE)")
+    parser.add_argument("--seconds", type=int, default=None,
+                        help="Target video length; sets the scene count "
+                             "(default: the prompt's own 60-90s guidance)")
     args = parser.parse_args()
+    # Deliberately not an argparse default: IMAGE_BACKEND must not be able to
+    # select a paid backend on its own. pipeline.auto routes through here, so
+    # leaving this out meant the one-shot path still billed gpt-image-1 from
+    # .env alone — the very hole resolve_backend_arg exists to close.
+    from .images import resolve_backend_arg
+    try:
+        args.image_backend = resolve_backend_arg(
+            args.image_backend, os.environ.get("IMAGE_BACKEND"))
+    except RuntimeError as e:
+        sys.exit(str(e))
+    forced_model = args.model is not None
     if not args.model:
         from .script_agent import default_model
         args.model = default_model()  # errors if LLM_PROVIDER not set
 
     from .styles import resolve_style
     style = resolve_style(args.style)
+
+    from . import report
 
     work_dir = Path(args.out) / (args.name or slugify(args.topic))
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -94,15 +110,33 @@ def main() -> None:
 
     # ---- Stage 1: shot plan ----
     if "plan" not in state["done"]:
-        from .script_agent import generate_shot_plan, refine_plan
-        print(f"stage: plan ({args.model})")
+        from .script_agent import (generate_shot_plan, plan_report, refine_plan,
+                                   scene_count_for)
+        print("stage: plan")
+        for line in plan_report(args.model, forced=forced_model):
+            print(line)
+        if args.style:
+            print(report.note_line(f"style preset: {args.style} (--style / VIDEO_STYLE)"))
+        if args.seconds:
+            # Show the resolved count so the 2-12 clamp is visible.
+            print(report.note_line(
+                f"target: ~{args.seconds}s -> {scene_count_for(args.seconds)} scenes"))
         plan = generate_shot_plan(args.topic, model=args.model, style=style,
-                                  animate=args.animate)
+                                  animate=args.animate,
+                                  target_seconds=args.seconds)
         plan_file.write_text(plan.model_dump_json(indent=2))
         plan = refine_plan(
             plan, model=args.model, animate=args.animate,
             on_write=lambda p: plan_file.write_text(p.model_dump_json(indent=2)),
         )
+        # After refine_plan, not before: it returns a fresh LLM-parsed plan, so a
+        # style written earlier would describe a superseded one. Resuming a run
+        # whose plan stage is already done skips this with the rest of the stage,
+        # leaving an existing style.json alone.
+        from .styles import save_style, style_for_plan
+        # With no --style, persist the palette the model proposed for this plan
+        # instead of writing nothing; a preset always wins over it.
+        save_style(work_dir, style_for_plan(style, getattr(plan, "palette", None)))
         state["done"].append("plan")
         save_state(work_dir, state)
         print(f"  wrote {plan_file} ({len(plan.scenes)} scenes)")
@@ -125,7 +159,8 @@ def main() -> None:
     if "images" not in state["done"]:
         from .images import generate_images
         print("stage: images")
-        generate_images(plan, work_dir / "images", backend=args.image_backend)
+        generate_images(plan, work_dir / "images", backend=args.image_backend,
+                        work_dir=work_dir)
         state["done"].append("images")
         save_state(work_dir, state)
     if args.until == "images":
@@ -146,9 +181,17 @@ def main() -> None:
 
     # ---- Stage 3: voiceover ----
     if "voice" not in state["done"]:
-        from .voiceover import generate_voiceover
-        print("stage: voiceover (edge-tts)")
-        generate_voiceover(plan, work_dir / "audio", voice=args.voice)
+        from .voiceover import DEFAULT_VOICE, generate_voiceover, voice_report
+        print("stage: voiceover")
+        # NARRATOR_VOICE still sets the voice, but only a typed --voice counts
+        # as "forced" in the header. Defaulting the flag to the env var made the
+        # report claim the user chose a voice they never mentioned — the same
+        # env-vs-explicit conflation fixed for --style and --image-backend.
+        voice = args.voice or os.environ.get("NARRATOR_VOICE") or None
+        for line in voice_report(plan, voice or DEFAULT_VOICE,
+                                 forced=args.voice is not None):
+            print(line)
+        generate_voiceover(plan, work_dir / "audio", voice=voice)
         state["done"].append("voice")
         save_state(work_dir, state)
     if args.until == "voice":
@@ -162,7 +205,7 @@ def main() -> None:
         compose_scenes = [i for i, s in enumerate(plan.scenes) if s.compose]
         if compose_scenes:
             from .compose import render_compositions
-            print(f"stage: compose (remotion, {len(compose_scenes)} card scene(s))")
+            print("stage: compose")
             render_compositions(plan, work_dir)
         state["done"].append("compose")
         save_state(work_dir, state)
@@ -172,11 +215,14 @@ def main() -> None:
 
     # ---- Stage 4: assembly ----
     if "assemble" not in state["done"]:
-        from .assemble import assemble, pick_music
-        print("stage: assemble (ffmpeg)")
-        music = pick_music(Path(args.music_dir), plan.music_mood)
-        print(f"  music: {music if music else 'none (music/ folder empty)'}")
-        final = assemble(plan, work_dir, music_path=music)
+        from .assemble import assemble, choose_music, music_report
+        print("stage: assemble")
+        print(report.row("assemble", "ffmpeg",
+                         f"local render, free, {report.plural(len(plan.scenes), 'scene')}"))
+        choice = choose_music(Path(args.music_dir), plan.music_mood)
+        for line in music_report(choice):
+            print(line)
+        final = assemble(plan, work_dir, music_path=choice.path)
         state["done"].append("assemble")
         save_state(work_dir, state)
         print(f"\nDone: {final}")

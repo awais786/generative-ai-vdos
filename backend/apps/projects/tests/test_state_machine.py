@@ -37,10 +37,23 @@ class ValidTransitionsTest(TestCase):
         p.transition_status(Status.GENERATING)
         self.assertEqual(p.status, Status.GENERATING)
 
-    def test_review_to_planning(self):
+    def test_review_to_refining(self):
+        # A revision from the review gate goes to REFINING, not back to
+        # PLANNING — REFINING is the in-progress state for plan revisions.
         p = make_project_in(Status.REVIEW)
-        p.transition_status(Status.PLANNING)
-        self.assertEqual(p.status, Status.PLANNING)
+        p.transition_status(Status.REFINING)
+        self.assertEqual(p.status, Status.REFINING)
+
+    def test_refining_to_review(self):
+        p = make_project_in(Status.REFINING)
+        p.transition_status(Status.REVIEW)
+        self.assertEqual(p.status, Status.REVIEW)
+
+    def test_failed_to_review(self):
+        # Retrying a failed plan returns it to the review gate.
+        p = make_project_in(Status.FAILED)
+        p.transition_status(Status.REVIEW)
+        self.assertEqual(p.status, Status.REVIEW)
 
     def test_generating_to_image_review(self):
         p = make_project_in(Status.GENERATING)
@@ -105,5 +118,7 @@ class InvalidTransitionsTest(TestCase):
     def test_draft_to_done(self):
         self._assert_raises(Status.DRAFT, Status.DONE)
 
-    def test_failed_to_review(self):
-        self._assert_raises(Status.FAILED, Status.REVIEW)
+    def test_review_to_planning(self):
+        # REVIEW -> PLANNING was replaced by REVIEW -> REFINING when the
+        # REFINING status was introduced; going back to PLANNING is invalid.
+        self._assert_raises(Status.REVIEW, Status.PLANNING)

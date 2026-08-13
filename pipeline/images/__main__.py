@@ -7,11 +7,13 @@ Usage:
 """
 import argparse
 import os
+import sys
 from pathlib import Path
 
 from ..env import load_env
 from ..schema import ShotPlan
-from . import character_refs, generate_images, generate_scene_image, get_provider
+from . import (character_refs, generate_images, generate_scene_image,
+               get_provider, resolve_backend_arg, selection_report)
 
 
 def main() -> None:
@@ -20,10 +22,17 @@ def main() -> None:
     parser.add_argument("work_dir", nargs="?", default=None,
                         help="output/<name> dir (default: the most recent one)")
     parser.add_argument("--scene", type=int, default=None, help="Regenerate only this scene index (0-based)")
-    parser.add_argument("--backend", default=os.environ.get("IMAGE_BACKEND"),
+    parser.add_argument("--backend", default=None,
                         help="Image backend (.env: IMAGE_BACKEND; qwen | openai | "
                              "flux | stock | placeholder)")
     args = parser.parse_args()
+    # Deliberately not an argparse default: IMAGE_BACKEND must not be able to
+    # select a paid backend on its own. See resolve_backend_arg.
+    try:
+        args.backend = resolve_backend_arg(args.backend, os.environ.get("IMAGE_BACKEND"))
+    except RuntimeError as e:
+        # A misconfiguration, not a crash — exit with the message, no traceback.
+        sys.exit(str(e))
 
     from ..run import latest_work_dir
     work_dir = Path(args.work_dir) if args.work_dir else latest_work_dir()
@@ -38,17 +47,28 @@ def main() -> None:
                   f"({plan.scenes[args.scene].compose.template}) — no image to regenerate")
             return
         primary = get_provider(args.backend)
+        # Count the portraits this regen would still have to render. On the
+        # single-scene path they are often the ONLY extra spend, so omitting
+        # them understated exactly the run a user reaches for after a bad scene.
+        ref_dir = out_dir / "refs"
+        pending_refs = (sum(1 for c in plan.characters
+                            if not (ref_dir / f"{c.name}.png").is_file())
+                        if plan.characters and hasattr(primary, "edit") else 0)
+        for line in selection_report(primary, forced=args.backend is not None,
+                                     scenes=1, refs=pending_refs):
+            print(line)
         # Reuse (or rebuild only the missing) character reference portraits so a
         # single-scene regen keeps the same faces/outfits as the rest of the video,
         # matching the full-run path in generate_images().
-        refs = character_refs(plan, primary, out_dir)
+        refs = character_refs(plan, primary, out_dir, work_dir=work_dir)
         data, used = generate_scene_image(plan, args.scene, primary,
-                                          fallback=args.backend is None, char_refs=refs)
+                                          fallback=args.backend is None, char_refs=refs,
+                                          work_dir=work_dir)
         path = out_dir / f"scene_{args.scene:02d}.png"
         path.write_bytes(data)
         print(f"regenerated {path} via {used.name}")
     else:
-        generate_images(plan, out_dir, backend=args.backend)
+        generate_images(plan, out_dir, backend=args.backend, work_dir=work_dir)
 
 
 if __name__ == "__main__":

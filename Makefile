@@ -3,12 +3,13 @@ VENV   := .venv
 PY     := $(VENV)/bin/python
 MANAGE := $(PY) backend/manage.py
 
-.PHONY: help install install-web sync migrate backend frontend prod test example clean-example
+.PHONY: help install install-web sync env ffmpeg migrate backend frontend prod test example clean-example preflight
 
 help:
 	@echo "make install       - full setup: ffmpeg + pipeline deps + .env"
 	@echo "make install-web   - Python webapp deps + scaffold Next.js in webapp/ (run once)"
 	@echo "make sync          - install/update pipeline Python deps via uv"
+	@echo "make env           - install deps (uv sync) + create .env from .env.example"
 	@echo "make migrate       - run Django migrations"
 	@echo "make backend       - Django only on :8000"
 	@echo "make frontend      - Next.js frontend on :3000"
@@ -16,6 +17,7 @@ help:
 	@echo "make test          - run the test suite"
 	@echo "make example       - run the bundled example end-to-end (free, no keys needed)"
 	@echo "make clean-example - remove the example's generated output"
+	@echo "make preflight     - report what pipeline capabilities work on this machine"
 
 install: ffmpeg sync env
 	@echo ""
@@ -45,7 +47,7 @@ migrate: $(VENV)
 	uv sync --all-extras
 	$(MANAGE) migrate
 
-backend:
+backend: migrate
 	uv sync --all-extras
 	$(MANAGE) runserver 8000
 
@@ -91,8 +93,12 @@ else
 endif
 
 env:
+	uv sync --all-extras
 	@test -f .env || (cp .env.example .env && echo "created .env - add your keys")
 	@test ! -f .env || echo ".env: OK"
+
+preflight: $(VENV)
+	$(PY) -m pipeline.registry
 
 # Uses the free placeholder image backend - works with no keys.
 # With DASHSCOPE_API_KEY set, drop --backend placeholder for real images.

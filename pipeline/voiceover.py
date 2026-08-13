@@ -97,6 +97,22 @@ def synth_scene_sync(text: str, voice: str, mp3_path: Path, words_path: Path) ->
     asyncio.run(synth_scene_with_retry(text, voice, mp3_path, words_path))
 
 
+def voice_report(plan: ShotPlan, voice: str, forced: bool = False) -> List[str]:
+    """Header lines for the voiceover stage: which voice, from where, at what cost."""
+    from . import report
+
+    default_voice = resolve_voice(voice, DEFAULT_VOICE)
+    source = "forced via --voice" if forced else "pipeline default"
+    lines = [report.row("voice", default_voice,
+                        f"{source}, edge-tts, free, {report.plural(len(plan.scenes), 'scene')}")]
+    per_scene = sorted({resolve_voice(s.voice, default_voice) for s in plan.scenes
+                        if s.voice} - {default_voice})
+    if per_scene:
+        lines.append(report.note_line(
+            f"{len(per_scene)} per-scene voice(s) from the plan: {', '.join(per_scene)}"))
+    return lines
+
+
 def generate_voiceover(
     plan: ShotPlan,
     out_dir: Path,
@@ -143,19 +159,28 @@ def main() -> None:
     import argparse
 
     from .env import load_env
+
+    # CLI-only: make the per-scene "voice: scene N/M" lines visible when run
+    # standalone. Under the celery worker Django's LOGGING config already
+    # installed handlers, so basicConfig is a no-op there.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     load_env()
     parser = argparse.ArgumentParser(description="Generate voiceover for an existing work dir")
     parser.add_argument("work_dir", nargs="?", default=None,
                         help="output/<name> dir (default: the most recent one)")
-    parser.add_argument("--voice", default=DEFAULT_VOICE,
-                        help="Narrator voice; per-scene 'voice' in shot_plan.json overrides")
+    parser.add_argument("--voice", default=None,
+                        help="Narrator voice; per-scene 'voice' in shot_plan.json overrides "
+                             f"(default: {DEFAULT_VOICE})")
     args = parser.parse_args()
 
     from .run import latest_work_dir
     work_dir = Path(args.work_dir) if args.work_dir else latest_work_dir()
     print(f"video folder: {work_dir}")
     plan = ShotPlan.model_validate_json((work_dir / "shot_plan.json").read_text())
-    generate_voiceover(plan, work_dir / "audio", voice=args.voice)
+    voice = args.voice or DEFAULT_VOICE
+    for line in voice_report(plan, voice, forced=args.voice is not None):
+        print(line)
+    generate_voiceover(plan, work_dir / "audio", voice=voice)
 
 
 if __name__ == "__main__":

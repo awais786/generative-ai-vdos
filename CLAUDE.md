@@ -1,8 +1,37 @@
 # CLAUDE.md
 
+> **MANDATORY — producing a video?** If the user asks you to make, create, or
+> produce a video, you MUST read [`AGENT_GUIDE.md`](AGENT_GUIDE.md) before taking
+> any action, including before running any pipeline command. It contains the
+> preflight step, the review gates, the money rules, and the full stage list —
+> none of which are repeated in this file. Skipping it WILL cause you to miss
+> stages and spend money without approval.
+>
+> This file covers working *on* the codebase. `AGENT_GUIDE.md` covers *running* it.
+
 AI video pipeline: rough text idea → shot plan JSON → AI images → optional animation →
 TTS voiceover → FFmpeg assembly → `output/<name>/final.mp4`. See README.md for the full
 user guide; this file covers what an agent needs to work on the codebase safely.
+
+## Skills (read the matching one before touching a stage)
+
+Project skills in `.claude/skills/` carry the deep, per-stage how-to knowledge and gotchas.
+This file is the safety overview; the skills are the manual. **If there's even a 1% chance a
+skill applies to what you're doing, invoke it.**
+
+| Skill | Use when working on |
+|---|---|
+| `shot-plan` | `shot_plan.json`, characters/placeholders, negatives, outfits, `animate`, compose scenes, style presets |
+| `image-backends` | `pipeline/images/` — adding a provider, fallback/priority, character reference edits, qwen/gpt-image quirks |
+| `voiceover-tts` | `pipeline/voiceover.py` — edge-tts, voices, WordBoundary timings, missing-audio/caption debugging |
+| `remotion-compose` | the compose track — title/quote/lower-third/outro cards, templates, palettes, `remotion/src/` |
+| `ffmpeg-assembly` | `pipeline/assemble.py` — Ken Burns, captions/subtitles, overlays, music mix, timing, failed renders |
+
+Those cover *changing* a stage. The stage-director skills — `plan-director`,
+`images-director`, `voiceover-director`, `compose-director`, `assemble-director`,
+and `creative-intake` before them — cover *running* one; `AGENT_GUIDE.md` routes to those.
+
+(The web app has its own skill rules — see "Webapp development rules" below.)
 
 ## Commands
 
@@ -14,6 +43,7 @@ python -m pipeline.refine --change "..."   # revise latest plan
 python -m pipeline.images                  # stage 2 (free via qwen)
 python -m pipeline.video                   # stage 2.5 — DISABLED by default (costs money) — uncomment pipeline/video/__main__.py to re-enable
 python -m pipeline.voiceover               # stage 3 (free)
+python -m pipeline.compose                 # stage 3.5 (free, Remotion; no-op if no compose scenes)
 python -m pipeline.assemble [--music f]    # stage 4 (free, local ffmpeg)
 python -m pipeline.auto "idea"             # all stages, gate pre-approved (= pipeline.run --approve)
 ```
@@ -33,14 +63,28 @@ run with `(cd backend && python manage.py test apps)`. Verify pipeline changes a
 
 ## Money rules
 
+These stay here in full, not behind a pointer: this file auto-loads and
+`AGENT_GUIDE.md` does not, so an agent doing a codebase task sees only what is
+written below.
+
 - **Never run `pipeline.video` (Wan animation) without the user asking** — it spends
   the limited free credit (~1,650s per account, ~5s/scene). Same for adding paid
   backends to a run.
 - **gpt-image-1 is never auto-selected** — requires explicit `--backend gpt-image-1`.
   Qwen (free) is always the default first-choice image backend.
+- **`flux-schnell` bills past its free tier** (~$0.003/image) and *is* auto-pickable
+  and reachable through the per-scene fallback chain — so a run announced as free
+  can spend there if `REPLICATE_API_TOKEN` is set.
 - Images via `qwen-image` and plans via `gpt-4o-mini` are effectively free; still,
   show the user the plan/images at review gates before generating downstream assets.
 - The user reviews artifacts between stages by preference: plan → images → the rest.
+
+Two of these are enforced in code, and both are load-bearing — do not "clean them up":
+`pipeline/video/__main__.py` is commented out so the CLI animation stage cannot run,
+and `AUTO_EXCLUDE` in `pipeline/images/__init__.py` keeps `gpt-image-1` out of
+auto-pick and out of the fallback chain. The rest are honoured only by whoever reads
+this. `python -m pipeline.registry` reports what is actually configured; the
+announce/approve protocol is in [`AGENT_GUIDE.md`](AGENT_GUIDE.md).
 
 ## Architecture in 30 seconds
 
@@ -207,3 +251,42 @@ skills, if they're available.**
   stages consistent with that pattern.
 - `output/`, `music/`, `.env`, `.venv` are gitignored — never force-add them.
 - CC-BY music in `music/` requires attribution (see `music/ATTRIBUTION.txt`).
+
+<!-- code-review-graph MCP tools -->
+## MCP Tools: code-review-graph
+
+**IMPORTANT: This project has a knowledge graph. ALWAYS use the
+code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
+the codebase.** The graph is faster, cheaper (fewer tokens), and gives
+you structural context (callers, dependents, test coverage) that file
+scanning cannot.
+
+### When to use graph tools FIRST
+
+- **Exploring code**: `semantic_search_nodes_tool` or `query_graph_tool` instead of Grep
+- **Understanding impact**: `get_impact_radius_tool` instead of manually tracing imports
+- **Code review**: `detect_changes_tool` + `get_review_context_tool` instead of reading entire files
+- **Finding relationships**: `query_graph_tool` with callers_of/callees_of/imports_of/tests_for
+- **Architecture questions**: `get_architecture_overview_tool` + `list_communities_tool`
+
+Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
+
+### Key Tools
+
+| Tool | Use when |
+| ------ | ---------- |
+| `detect_changes_tool` | Reviewing code changes — gives risk-scored analysis |
+| `get_review_context_tool` | Need source snippets for review — token-efficient |
+| `get_impact_radius_tool` | Understanding blast radius of a change |
+| `get_affected_flows_tool` | Finding which execution paths are impacted |
+| `query_graph_tool` | Tracing callers, callees, imports, tests, dependencies |
+| `semantic_search_nodes_tool` | Finding functions/classes by name or keyword |
+| `get_architecture_overview_tool` | Understanding high-level codebase structure |
+| `refactor_tool` | Planning renames, finding dead code |
+
+### Workflow
+
+1. The graph auto-updates on file changes (via hooks).
+2. Use `detect_changes_tool` for code review.
+3. Use `get_affected_flows_tool` to understand impact.
+4. Use `query_graph_tool` pattern="tests_for" to check coverage.

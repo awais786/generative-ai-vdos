@@ -2,17 +2,26 @@
 import json
 import logging
 import random
+import re
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+from . import report
 from .schema import ShotPlan
+from .styles import load_style
 
 logger = logging.getLogger(__name__)
 
 FPS = 30
+
+#: style.json is a user-editable sidecar, and load_style() is documented never
+#: to raise — so a hand-edited "#fff" or "red" reached ffmpeg as a garbage
+#: colour or an opaque filter-parse abort. Anything not matching falls back.
+_HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{6}")
 
 # Ken Burns motion patterns — cycles through each scene in order.
 # Each entry: (zoom_expr, x_expr, y_expr)
@@ -32,15 +41,114 @@ _KB_MODES = [
     ("1+0.0008*on",    "iw-iw/zoom",              "ih-ih/zoom"),
 ]
 
-# First present font is used for on_screen_text overlays.
-_FONT = next((f for f in [
+# First present font is used for on_screen_text overlays. When none of these
+# exists, _overlay_filter returns '' and every overlay silently disappears from
+# the finished video — so a platform missing from this list loses content
+# without raising. assemble() warns when that happens.
+_FONT_CANDIDATES = [
+    # macOS
     "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     "/System/Library/Fonts/Helvetica.ttc",
+    # Linux
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-] if Path(f).exists()), None)
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    # Windows
+    r"C:\Windows\Fonts\arialbd.ttf",
+    r"C:\Windows\Fonts\segoeuib.ttf",
+    r"C:\Windows\Fonts\arial.ttf",
+]
+_FONT = next((f for f in _FONT_CANDIDATES if Path(f).exists()), None)
 
 
-def _overlay_filter(text: Optional[str]) -> str:
+def _font_arg(path: str) -> str:
+    r"""Font path as ffmpeg's filtergraph parser needs it.
+
+    ffmpeg parses the filter string itself, so a Windows path breaks it twice:
+    ':' separates filter options and '\' starts an escape. Forward slashes with
+    an escaped drive colon is the form ffmpeg accepts on Windows, and it leaves
+    POSIX paths untouched.
+    """
+    path = path.replace("\\", "/")
+    if len(path) > 1 and path[1] == ":":  # C:/... -> C\:/...
+        path = f"{path[0]}\\:{path[2:]}"
+    return path
+
+
+def _hex_to_ass(hex_colour: str) -> str:
+    """#rrggbb -> &HAABBGGRR for libass force_style.
+
+    libass stores colours blue-first with alpha leading. Handing it an #rrggbb
+    string produces a wrong-but-plausible colour and no error, so every colour
+    reaching force_style must come through here.
+    """
+    h = hex_colour.lstrip("#")
+    return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()
+
+
+def _hex_to_drawtext(hex_colour: str) -> str:
+    """#rrggbb -> 0xrrggbb for ffmpeg drawtext fontcolor."""
+    return "0x" + hex_colour.lstrip("#").lower()
+
+
+def _flatten(text: Optional[str]) -> str:
+    """Lowercase, punctuation to spaces, whitespace collapsed — so that
+    'everyone HAS a WAVE coming...' and 'Everyone has a wave coming' compare equal."""
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).split())
+
+
+def _restates(text: Optional[str], narration: Optional[str]) -> bool:
+    """True when `text` is a verbatim phrase already spoken in `narration`.
+
+    The subtitles are built from the narration, so anything this returns True
+    for would render twice on the same frame. Deliberately conservative:
+
+    - Contiguous phrase only. Paraphrase ('Meet the Professor' against "Meet
+      our professor") never fires — catching it needs judgement we don't have.
+    - Under 3 words never fires. This is what protects the short labels that
+      repeat the narration on purpose: in a listicle, 'ARGENTINA' over
+      "Argentina — champions by destiny" IS the visual design.
+    - 'subscribe' never fires. CTA copy repeats the narration on purpose.
+    """
+    flat = _flatten(text)
+    spoken = _flatten(narration)
+    if not flat or not spoken:
+        return False
+    if len(flat.split()) < 3:
+        return False
+    if "subscribe" in flat:
+        return False
+    return f" {flat} " in f" {spoken} "
+
+
+#: Minimum luma (ITU-R BT.709, 0-255) for a fill colour burned over imagery.
+#: Below this it competes with the dark outline the filters always apply.
+_MIN_BURN_IN_LUMA = 140
+
+
+def _burn_in_colour(style: dict | None) -> str | None:
+    """The style's text colour, but only when it is light enough to burn in.
+
+    `palette["fg"]` is a CARD colour — schema.py defines it as "high contrast
+    against bg1", a known background. Captions and overlays sit over arbitrary
+    photographs with a dark outline, so a dark fg renders dark-on-dark and
+    effectively disappears: storybook's parchment card gives fg #3b2a1a, which
+    vanished over its own bright illustrations. Returns None when the caller
+    should use white instead.
+    """
+    style = style or {}
+    # A palette the model invented styles the cards but never burned-in text:
+    # see style_for_plan(). Only a preset's palette reaches this far.
+    if style.get("source") == "model":
+        return None
+    fg = (style.get("palette") or {}).get("fg")
+    if not fg or not _HEX_COLOUR.fullmatch(fg):
+        return None
+    r, g, b = (int(fg[i:i + 2], 16) for i in (1, 3, 5))
+    luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return fg if luma >= _MIN_BURN_IN_LUMA else None
+
+
+def _overlay_filter(text: Optional[str], style: dict | None = None) -> str:
     """drawtext filter chunk for the scene's on_screen_text (top center), or ''."""
     if not text or _FONT is None:
         return ""
@@ -53,8 +161,14 @@ def _overlay_filter(text: Optional[str]) -> str:
                .replace(":", "\\:").replace("%", "\\%")
                .replace("[", "\\[").replace("]", "\\]")
                .replace(",", "\\,").replace(";", "\\;"))
-    return (f",drawtext=fontfile='{_FONT}':text='{esc}':fontsize=58:fontcolor=white:"
-            f"borderw=3:bordercolor=black@0.8:x=(w-text_w)/2:y=70")
+    text_cfg = (style or {}).get("text") or {}
+    size = text_cfg.get("overlay_size", 58)
+    border = text_cfg.get("overlay_border", 3)
+    safe = _burn_in_colour(style)
+    colour = _hex_to_drawtext(safe) if safe else "white"
+    return (f",drawtext=fontfile='{_font_arg(_FONT)}':text='{esc}':fontsize={size}:"
+            f"fontcolor={colour}:borderw={border}:bordercolor=black@0.8:"
+            f"x=(w-text_w)/2:y=70")
 
 
 def _run(cmd: List[str], cwd: Optional[Path] = None, timeout: int = 15 * 60,
@@ -126,23 +240,40 @@ def _build_scene_srt(words_json: Path, srt_path: Path) -> None:
     srt_path.write_text("\n".join(lines))
 
 
-def _subtitle_filter(rel_path: str, srt_path: Path) -> str:
+def _subtitle_filter(rel_path: str, srt_path: Path, style: dict | None = None) -> str:
     """subtitles= chunk (path relative to ffmpeg cwd), or '' if no SRT."""
     if not srt_path.is_file() or srt_path.stat().st_size == 0:
         return ""
+    text = (style or {}).get("text") or {}
+    size = text.get("caption_size", 18)
+    outline = text.get("caption_outline", 2)
+    safe = _burn_in_colour(style)
+    colour = f",PrimaryColour={_hex_to_ass(safe)}" if safe else ""
     return (f",subtitles={rel_path}:force_style="
-            f"'FontSize=18,Bold=1,Outline=2,MarginV=40'")
+            f"'FontSize={size},Bold=1,Outline={outline},MarginV=40{colour}'")
 
 
 def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) -> Path:
     if shutil.which("ffmpeg") is None:
-        raise RuntimeError("ffmpeg not found — install it with: brew install ffmpeg")
+        from .registry import _ffmpeg_hint  # local: avoids a circular import
+        raise RuntimeError(f"ffmpeg not found — install it with: {_ffmpeg_hint()}")
+
+    # The per-scene ffmpeg calls run with cwd=work_dir so libass resolves the
+    # SRT from a clean relative path. That makes every OTHER path passed to
+    # ffmpeg relative to work_dir too, so a relative work_dir sends ffmpeg
+    # looking for work_dir/work_dir/images/... Resolve here, at the boundary,
+    # rather than in main(): the celery path already passes an absolute path,
+    # and resolving once protects every caller.
+    work_dir = Path(work_dir).resolve()
 
     images_dir = work_dir / "images"
     video_dir = work_dir / "video"
     audio_dir = work_dir / "audio"
     clips_dir = work_dir / "clips"
     clips_dir.mkdir(exist_ok=True)
+    # One read for the whole render: captions and overlays take their size and
+    # colour from the same style the images and compose cards used.
+    style = load_style(work_dir)
 
     missing_audio = [i for i in range(len(plan.scenes))
                      if not (audio_dir / f"scene_{i:02d}.mp3").is_file()]
@@ -150,17 +281,48 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         raise SystemExit(
             f"no voiceover for scene(s) {missing_audio} in {audio_dir} — run:\n"
             f"  python -m pipeline.voiceover {work_dir}")
-    missing_images = [i for i in range(len(plan.scenes))
-                      if not (images_dir / f"scene_{i:02d}.png").is_file()
-                      and not (video_dir / f"scene_{i:02d}.mp4").is_file()]
-    if missing_images:
-        raise SystemExit(
-            f"no image or clip for scene(s) {missing_images} — run:\n"
-            f"  python -m pipeline.images {work_dir}")
+    missing = [i for i in range(len(plan.scenes))
+               if not (images_dir / f"scene_{i:02d}.png").is_file()
+               and not (video_dir / f"scene_{i:02d}.mp4").is_file()]
+    # Split by what can actually produce the missing file. generate_images()
+    # skips compose scenes by design, so telling the user to run pipeline.images
+    # for a card is a dead end: the command reports "skipped" and assembly fails
+    # again, identically, forever.
+    missing_cards = [i for i in missing if plan.scenes[i].compose]
+    missing_stills = [i for i in missing if not plan.scenes[i].compose]
+    if missing_cards or missing_stills:
+        lines = [f"no image or clip for scene(s) {missing} — run:"]
+        if missing_stills:
+            lines.append(f"  python -m pipeline.images {work_dir}"
+                         f"   (scenes {missing_stills})")
+        if missing_cards:
+            lines.append(f"  python -m pipeline.compose {work_dir}"
+                         f"   (card scenes {missing_cards})")
+        raise SystemExit("\n".join(lines))
 
     # Per-scene clip + that scene's voiceover. Captions are burned in *here*
     # (per-scene SRT with local timings) so the final pass can stream-copy
     # instead of doing a full re-encode of the concatenated video.
+    # Without a font, _overlay_filter returns '' and every overlay disappears
+    # from the finished video without raising anything. Say so once, up front,
+    # rather than letting the user discover it on playback.
+    suppressed = [i for i, s in enumerate(plan.scenes)
+                  if s.on_screen_text and (s.compose or _restates(s.on_screen_text, s.narration))]
+    if suppressed:
+        # Every other stage announces what it chose; this one quietly dropped
+        # authored text. Name the scenes so the choice is reviewable.
+        print(report.note_line(
+            f"overlay suppressed on scene {', '.join(str(i) for i in suppressed)} "
+            f"(already spoken in the narration, or the scene is a card)"))
+
+    if _FONT is None:
+        wanted = sum(1 for s in plan.scenes if s.on_screen_text and not s.compose)
+        if wanted:
+            print(report.warning(
+                f"no usable font found — {report.plural(wanted, 'on-screen overlay')} "
+                f"will not be drawn. Install a font from _FONT_CANDIDATES "
+                f"(assemble.py) or the captions-only video is what you get."))
+
     t_total = time.perf_counter()
     clip_paths = []
     scenes_wall = 0.0
@@ -171,7 +333,17 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         mp3 = audio_dir / f"scene_{i:02d}.mp3"
         clip = clips_dir / f"scene_{i:02d}.mp4"
         dur = _duration(mp3) + 0.3  # small breath between scenes
-        overlay = _overlay_filter(plan.scenes[i].on_screen_text)
+        scene = plan.scenes[i]
+        # A compose card is a designed full-frame composition — a drawtext line
+        # on top of it competes with the card's own typography, so the card is
+        # the scene's only text layer.
+        # Otherwise: an overlay that merely repeats the narration would print
+        # the same words the subtitles are already showing. There the subtitles
+        # win — they are word-timed and carry accessibility.
+        overlay_text = scene.on_screen_text
+        if scene.compose or _restates(overlay_text, scene.narration):
+            overlay_text = None
+        overlay = _overlay_filter(overlay_text, style=style)
 
         t_srt = time.perf_counter()
         words_json = audio_dir / f"scene_{i:02d}.words.json"
@@ -179,7 +351,11 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
         _build_scene_srt(words_json, srt_path)
         srt_wall += time.perf_counter() - t_srt
         # ffmpeg cwd=work_dir so libass sees a clean relative path
-        subs = _subtitle_filter(f"audio/scene_{i:02d}.srt", srt_path)
+        subs = _subtitle_filter(f"audio/scene_{i:02d}.srt", srt_path, style=style)
+        # A compose card IS the scene's whole visual. When it shows the line the
+        # narration speaks, the card wins and the subtitles stand down.
+        if scene.compose and _restates(scene.compose.heading, scene.narration):
+            subs = ""
 
         if vid.exists():
             scenes_wall += _run([
@@ -253,15 +429,79 @@ def assemble(plan: ShotPlan, work_dir: Path, music_path: Optional[Path] = None) 
     return final
 
 
-def pick_music(music_root: Path, mood: str) -> Optional[Path]:
-    """Pick a random track from music/<mood>/ (fall back to any track)."""
-    if not music_root.exists():
-        return None
+@dataclass(frozen=True, slots=True)
+class MusicChoice:
+    """Which track was picked and — the part that used to be silent — why.
+
+    `source` is "mood" for a real music/<mood>/ hit, "fallback" for a random
+    track from an unrelated mood, "none" when there is no music at all.
+    """
+
+    path: Optional[Path]
+    source: str
+    mood: str
+    root: Path
+    moods_available: tuple[str, ...] = ()
+    mood_dir_exists: bool = False
+
+    @property
+    def matched(self) -> bool:
+        """True only when the track really came from the requested mood."""
+        return self.source == "mood"
+
+
+def choose_music(music_root: Path, mood: str) -> MusicChoice:
+    """Pick a random track from music/<mood>/, falling back to any track.
+
+    Same behaviour as before — some music beats no music — but the caller can
+    now tell a real mood match apart from a random fallback (see music_report).
+    """
     mood_dir = music_root / mood
-    pool = list(mood_dir.glob("*.mp3")) if mood_dir.exists() else []
-    if not pool:
-        pool = list(music_root.rglob("*.mp3"))
-    return random.choice(pool) if pool else None
+    mood_dir_exists = mood_dir.is_dir()
+    moods = tuple(sorted(
+        d.name for d in music_root.iterdir()
+        if d.is_dir() and any(d.glob("*.mp3"))
+    )) if music_root.is_dir() else ()
+
+    pool = list(mood_dir.glob("*.mp3")) if mood_dir_exists else []
+    if pool:
+        return MusicChoice(random.choice(pool), "mood", mood, music_root,
+                           moods, mood_dir_exists)
+    pool = list(music_root.rglob("*.mp3")) if music_root.exists() else []
+    if pool:
+        return MusicChoice(random.choice(pool), "fallback", mood, music_root,
+                           moods, mood_dir_exists)
+    return MusicChoice(None, "none", mood, music_root, moods, mood_dir_exists)
+
+
+def music_report(choice: MusicChoice) -> list[str]:
+    """Header lines for the music pick — with a warning when the mood was missed.
+
+    A wrong-mood soundtrack used to print exactly like a correct one; the
+    warning names the folder that was missing and the moods that do exist.
+    """
+    if choice.path is None:
+        return [report.row("music", "none", f"no .mp3 files under {choice.root}/")]
+    try:
+        label = str(choice.path.relative_to(choice.root))
+    except ValueError:
+        label = choice.path.name
+    if choice.matched:
+        return [report.row("music", label, f"mood '{choice.mood}', free (local file)")]
+
+    folder = report.short_path(choice.root / choice.mood)
+    missing = (f"{folder}/ has no .mp3 files" if choice.mood_dir_exists
+               else f"no {folder}/ folder")
+    return [
+        report.row("music", label, f"RANDOM FALLBACK — mood '{choice.mood}' not matched"),
+        report.warning(f"{missing} — picked a random track from another mood"),
+        report.warning("moods available: " + (", ".join(choice.moods_available) or "none")),
+    ]
+
+
+def pick_music(music_root: Path, mood: str) -> Optional[Path]:
+    """Path-only wrapper kept for callers that don't report the choice."""
+    return choose_music(music_root, mood).path
 
 
 def main() -> None:
@@ -286,14 +526,19 @@ def main() -> None:
     work_dir = Path(args.work_dir) if args.work_dir else latest_work_dir()
     print(f"video folder: {work_dir}")
     plan = ShotPlan.model_validate_json((work_dir / "shot_plan.json").read_text())
+    print(report.row("assemble", "ffmpeg",
+                     f"local render, free, {report.plural(len(plan.scenes), 'scene')}"))
     if args.music:
         music = Path(args.music)
         if not music.is_file():
             import sys
             sys.exit(f"music file not found: {music}")
+        print(report.row("music", music.name, "forced via --music"))
     else:
-        music = pick_music(Path(args.music_dir), plan.music_mood)
-    print(f"  music: {music if music else 'none'}")
+        choice = choose_music(Path(args.music_dir), plan.music_mood)
+        music = choice.path
+        for line in music_report(choice):
+            print(line)
     final = assemble(plan, work_dir, music_path=music)
     print(f"Done: {final}")
 

@@ -125,8 +125,11 @@ class RunRefineStageTest(TestCase):
         mock_review.return_value = plan
 
         llm = _make_plan_model()
+        # run_refine_stage guards on REFINING (tasks.py) — the view transitions
+        # REVIEW -> REFINING before queueing. A project still in REVIEW is
+        # skipped, so setting it up in REVIEW silently tested nothing.
         project = make_project_in(
-            Status.REVIEW, plan_model=llm, shot_plan=make_shot_plan(3),
+            Status.REFINING, plan_model=llm, shot_plan=make_shot_plan(3),
         )
         _make_key(project.owner, llm.provider)
         run_refine_stage(project.id, "add more humor")
@@ -149,7 +152,7 @@ class RunRefineStageTest(TestCase):
 
         llm = _make_plan_model()
         project = make_project_in(
-            Status.REVIEW, plan_model=llm, shot_plan=make_shot_plan(2),
+            Status.REFINING, plan_model=llm, shot_plan=make_shot_plan(2),
         )
         _make_key(project.owner, llm.provider)
         run_refine_stage(project.id, "make it darker")

@@ -1,9 +1,15 @@
-from django.test import SimpleTestCase
+import unittest
 
 from pipeline.voiceover import normalize_tts_text, resolve_voice
 
 
-class VoiceoverHelpersTest(SimpleTestCase):
+# Plain unittest, not django.test.SimpleTestCase: this module only exercises
+# pure pipeline helpers (no models, settings or DB). Inheriting from a Django
+# TestCase meant `pytest tests/` — which `make test` runs — died on
+# "Requested setting DATABASES, but settings are not configured", while
+# `manage.py test apps` never discovered the file because it lives outside
+# backend/apps/. The file therefore ran under neither command.
+class VoiceoverHelpersTest(unittest.TestCase):
     def test_normalize_smart_quotes(self):
         text = normalize_tts_text("It\u2019s a test.")
         self.assertEqual(text, "It's a test.")
@@ -90,8 +96,15 @@ class VoiceoverHelpersTest(SimpleTestCase):
         from pathlib import Path
         import tempfile
 
+        # ShotPlan requires description/tags/music_mood/style_prefix. This
+        # fixture predates them, so the test raised ValidationError while
+        # building the plan and never reached the assertion it exists for.
         plan = ShotPlan.model_validate({
             "title": "Test",
+            "description": "Test video.",
+            "tags": ["test"],
+            "music_mood": "calm",
+            "style_prefix": "photo",
             "scenes": [{"media_prompt": "a", "narration": "hello"}],
         })
         with tempfile.TemporaryDirectory() as tmpdir:

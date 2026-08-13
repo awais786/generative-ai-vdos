@@ -10,7 +10,9 @@ ending at the always-available placeholder.
 """
 from pathlib import Path
 
+from .. import report
 from ..schema import ShotPlan
+from ..styles import load_style
 from .base import ImageProvider
 from .flux import FluxProvider
 from .gpt_image import GptImageProvider
@@ -45,6 +47,91 @@ ALIASES = {
 AUTO_EXCLUDE = {"gpt-image-1"}
 
 
+# What each backend costs the user — stated in the run header so a paid pick is
+# never a surprise. Every figure here is copied from the provider module's own
+# docstring; never estimate one. Keep in sync with PROVIDERS.
+PROVIDER_COST = {
+    # qwen_image.py: "free quota covers the qwen-image models, so images are $0
+    # while it lasts" — free, but a quota, hence the qualifier.
+    "qwen-image": "free while the Model Studio quota lasts",
+    # flux.py: "~$0.003/image for Flux Schnell", after Replicate's free tier.
+    "flux-schnell": "free tier, then ~$0.003/image",
+    # pexels.py: "free signup, no billing".
+    "pexels": "free (stock photos)",
+    # placeholder.py: "always available, $0".
+    "placeholder": "free (rendered locally)",
+    # gpt_image.py docstring: "~$0.01-0.02/image at low quality" — and its
+    # generate() hardcodes quality="low", so the low-quality rate is the one
+    # that applies. Same figure as README.md's key table.
+    "gpt-image-1": "PAID ~$0.01-0.02/image",
+}
+
+
+def resolve_backend_arg(cli_value: str | None, env_value: str | None) -> str | None:
+    """Backend name from the --backend flag, else IMAGE_BACKEND — but the
+    environment alone may never select a paid backend.
+
+    A *forced* backend bypasses AUTO_EXCLUDE, and --backend used to default
+    straight to IMAGE_BACKEND. So one `IMAGE_BACKEND=openai` line in .env billed
+    every bare `python -m pipeline.images`, with nothing typed on the command
+    line — contradicting CLAUDE.md's rule that gpt-image-1 "requires explicit
+    --backend gpt-image-1". Same shape as the VIDEO_STYLE hole in refine.py: an
+    env default made an "explicit" check pass by itself.
+    """
+    if cli_value is not None:
+        return cli_value
+    if env_value is None:
+        return None
+    resolved = ALIASES.get(env_value.strip().lower(), env_value.strip())
+    if resolved in AUTO_EXCLUDE:
+        raise RuntimeError(
+            f"IMAGE_BACKEND={env_value!r} selects the paid backend "
+            f"'{resolved}', which must be chosen explicitly. Either pass "
+            f"--backend {resolved} to confirm the spend, or set IMAGE_BACKEND "
+            f"to a free backend (qwen | flux | stock | placeholder).")
+    return env_value
+
+
+def selection_report(primary: ImageProvider, forced: bool,
+                     scenes: int | None = None, refs: int = 0) -> list[str]:
+    """Header lines for the images stage: the backend, its key, its cost — and,
+    for an auto-pick, which higher-priority backends were skipped and why.
+
+    `refs` is the number of character reference portraits still to be rendered.
+    They are billed exactly like scene images, so leaving them out of the count
+    understated a real run by 4 images out of 11."""
+    source = ("forced via --backend/IMAGE_BACKEND" if forced
+              else (primary.requires or "no key needed"))
+    cost = PROVIDER_COST.get(primary.name, "cost unknown")
+    if scenes is None:
+        count = ""
+    elif refs:
+        # The row carries the billed total — that is the number the cost applies
+        # to. The breakdown goes on its own line so report.fit()'s 120-char cap
+        # cannot truncate the figure that matters.
+        count = f", {scenes + refs} images"
+    else:
+        count = f", {report.plural(scenes, 'scene')}"
+    lines = [report.row("images", primary.name, f"{source}, {cost}{count}")]
+    if refs:
+        lines.append(report.note_line(
+            f"{report.plural(scenes, 'scene')} + {refs} character reference "
+            f"portrait{'s' if refs != 1 else ''} (portraits are billed too)"))
+    if forced:
+        return lines
+    for p in PROVIDERS:
+        if p is primary:
+            break
+        if p.name in AUTO_EXCLUDE:
+            reason = "paid — explicit --backend only"
+        elif not p.available():
+            reason = f"needs {p.requires}" if p.requires else "not available"
+        else:
+            continue
+        lines.append(report.note_line(f"{p.name} skipped ({reason})"))
+    return lines
+
+
 def get_provider(name: str | None = None, api_key=None) -> ImageProvider:
     if not name:
         # Auto-pick: first available provider in priority order, skipping the paid
@@ -67,15 +154,35 @@ def get_provider(name: str | None = None, api_key=None) -> ImageProvider:
         f"unknown image backend '{name}' — choices: {', '.join(p.name for p in PROVIDERS)}")
 
 
+def style_anchors(work_dir: Path | None) -> str:
+    """The style's consistency anchors as one appendable phrase, "" when absent.
+
+    Anchors are the positive counterpart to global_negative: invariants stated
+    outright ("same colour grade in every scene") instead of left for the model
+    to re-infer from style_prefix on each scene. They live in work_dir/style.json,
+    so a work dir without one produces byte-identical prompts to before.
+    """
+    if not work_dir:
+        return ""
+    anchors = load_style(work_dir).get("consistency_anchors") or []
+    return ", ".join(a for a in anchors if a)
+
+
 def character_refs(plan: ShotPlan, provider: ImageProvider, out_dir: Path,
-                   api_key=None) -> dict:
+                   api_key=None, work_dir: Path | None = None) -> dict:
     """Render one clean reference portrait per character (once) so single-character
     scenes can be edited from them for a consistent face/clothing. Only meaningful
     for providers that can edit from a reference (qwen-image, gpt-image-1); returns
     {} otherwise. A character whose portrait fails is simply omitted — its scenes
-    fall back to text-to-image."""
+    fall back to text-to-image.
+
+    The portraits carry the style's consistency anchors too — they are what every
+    character scene is edited from, so an un-anchored portrait would re-introduce
+    the drift one level down."""
     if not (plan.characters and hasattr(provider, "edit")):
         return {}
+    anchor_text = style_anchors(work_dir)
+    anchor_suffix = f", {anchor_text}" if anchor_text else ""
     ref_dir = out_dir / "refs"
     ref_dir.mkdir(parents=True, exist_ok=True)
     refs = {}
@@ -87,17 +194,21 @@ def character_refs(plan: ShotPlan, provider: ImageProvider, out_dir: Path,
             if c.is_inanimate:
                 prompt = (f"{plan.style_prefix}, {desc}, "
                           f"plain neutral background, even lighting, "
-                          f"centered product-style shot")
+                          f"centered product-style shot{anchor_suffix}")
             else:
                 prompt = (f"{plan.style_prefix}, a character reference portrait of "
                           f"{desc}, neutral standing pose, "
                           f"plain neutral background, even lighting, "
-                          f"full head and body visible")
+                          f"full head and body visible{anchor_suffix}")
             try:
                 data = provider.generate(prompt, negative=c.negative, api_key=api_key)
                 p.write_bytes(data)
             except Exception as e:
-                print(f"    ref {c.name}: failed ({e}) — scenes will text-to-image instead")
+                # Error text last: report.fit() caps the line, so what gets cut
+                # is the provider's message, not what the pipeline did about it.
+                print(report.note_line(
+                    f"reference portrait for {c.name} failed, its scenes will "
+                    f"text-to-image instead: {report.brief(e)}"))
                 continue
         refs[c.name] = p
     return refs
@@ -107,13 +218,19 @@ def generate_scene_image(
     plan: ShotPlan, index: int, primary: ImageProvider,
     fallback: bool = True, char_refs: dict | None = None,
     api_key=None, model: str | None = None,
-    on_preview_url=None,
+    on_preview_url=None, work_dir: Path | None = None,
 ) -> tuple[bytes, ImageProvider]:
     """Generate one scene's image bytes. With fallback (auto-picked backend),
     failures fall through the remaining providers; an explicitly forced backend
-    fails loudly."""
+    fails loudly.
+
+    *work_dir* is the video folder (the parent of out_dir), read for
+    style.json's consistency anchors; without it the prompt is unchanged."""
     scene = plan.scenes[index]
-    scene_prompt = plan.expand(scene.media_prompt, scene_outfit=scene.outfit, include_style_overhead=True)
+    anchor_text = style_anchors(work_dir)
+    scene_prompt = plan.expand(
+        scene.media_prompt, scene_outfit=scene.outfit, include_style_overhead=True,
+        extra_overhead=len(anchor_text) + 2 if anchor_text else 0)
     chars_in_scene = plan.characters_in(scene.media_prompt)
     char_map = {character.name: character for character in plan.characters}
 
@@ -124,12 +241,14 @@ def generate_scene_image(
     elif len(chars_in_scene) >= 2:
         # Anchor gender/identity for 2-character scenes — prevents the image model
         # from defaulting both characters to the same gender.
-        anchors = [char_map[character_in_scene].description.split(".")[0].split(",")[0]
-                   for character_in_scene in chars_in_scene if character_in_scene in char_map]
-        if anchors:
-            scene_prompt += f". Characters present: {'; '.join(anchors)}"
+        identity_anchors = [char_map[character_in_scene].description.split(".")[0].split(",")[0]
+                            for character_in_scene in chars_in_scene if character_in_scene in char_map]
+        if identity_anchors:
+            scene_prompt += f". Characters present: {'; '.join(identity_anchors)}"
 
     prompt = f"{plan.style_prefix}, {scene_prompt}"
+    if anchor_text:
+        prompt = f"{prompt}, {anchor_text}"
 
     char_negatives = [
         c.negative for c in plan.characters
@@ -172,8 +291,9 @@ def generate_scene_image(
                 return primary.edit(edit_prompt, refs, negative=merged_negative, api_key=api_key,
                                     model=model, on_preview_url=on_preview_url), primary
             except Exception as e:
-                print(f"  images: scene {index + 1} reference edit failed ({e}); "
-                      "falling back to text-to-image")
+                print(report.note_line(
+                    f"scene {index + 1}: reference edit rejected, "
+                    f"text-to-image instead: {report.brief(e)}"))
 
     if scene.reference_image:
         ref = Path(scene.reference_image)
@@ -203,15 +323,28 @@ def generate_scene_image(
             return data, provider
         except Exception as e:
             last_error = e
-            more = "; trying next" if provider is not chain[-1] else ""
-            print(f"  images: scene {index + 1} via {provider.name} failed ({e}){more}")
+            more = (f", trying {chain[chain.index(provider) + 1].name}"
+                    if provider is not chain[-1] else "")
+            print(report.note_line(
+                f"scene {index + 1}: {provider.name} failed{more}: "
+                f"{report.brief(e)}"))
     raise RuntimeError(f"image generation failed for scene {index + 1}: {last_error}")
 
 
-def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None) -> list[Path]:
+def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None,
+                    work_dir: Path | None = None) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     primary = get_provider(backend)
-    print(f"  images: backend = {primary.name}")
+    drawn = sum(1 for s in plan.scenes if not s.compose)
+    # Reference portraits are billed like any other image. Count only the ones
+    # not already cached on disk, so a re-run reports what it will actually spend.
+    ref_dir = out_dir / "refs"
+    pending_refs = (sum(1 for c in plan.characters
+                        if not (ref_dir / f"{c.name}.png").is_file())
+                    if plan.characters and hasattr(primary, "edit") else 0)
+    for line in selection_report(primary, forced=backend is not None,
+                                 scenes=drawn, refs=pending_refs):
+        print(line)
     if plan.characters:
         print("  images: character check (same description substituted in every scene):")
         for i, scene in enumerate(plan.scenes):
@@ -220,7 +353,7 @@ def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None) -
                 continue
             chars = plan.characters_in(scene.media_prompt)
             print(f"    scene {i}: {', '.join(chars) if chars else '-'}")
-    refs = character_refs(plan, primary, out_dir)
+    refs = character_refs(plan, primary, out_dir, work_dir=work_dir)
     paths = []
     for i in range(len(plan.scenes)):
         # Composition scenes are rendered by the compose stage (Remotion) straight
@@ -230,10 +363,13 @@ def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None) -
                   f"(compose: {plan.scenes[i].compose.template})")
             continue
         data, used = generate_scene_image(plan, i, primary,
-                                          fallback=backend is None, char_refs=refs)
+                                          fallback=backend is None, char_refs=refs,
+                                          work_dir=work_dir)
         path = out_dir / f"scene_{i:02d}.png"
         path.write_bytes(data)
-        note = "" if used is primary else f" (fell back to {used.name})"
-        print(f"  images: scene {i + 1}/{len(plan.scenes)}{note}")
+        print(f"  images: scene {i + 1}/{len(plan.scenes)}")
+        if used is not primary:
+            print(report.note_line(
+                f"scene {i + 1}: image came from {used.name}, not {primary.name}"))
         paths.append(path)
     return paths
