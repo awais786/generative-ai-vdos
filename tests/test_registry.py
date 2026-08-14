@@ -315,6 +315,11 @@ def test_images_fully_configured_backend_is_available(monkeypatch):
     import pipeline.images as images
     for p in images.PROVIDERS:
         monkeypatch.setattr(p, "available", lambda: True)
+    # BOTH vars. probe_images checks the environment directly rather than
+    # trusting available(), so setting only the model id left this passing
+    # solely because the developer's .env supplied DASHSCOPE_API_KEY — it
+    # failed the moment it ran on CI, where there is no .env.
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-test")
     monkeypatch.setenv("QWEN_IMAGE_MODEL", "qwen-image-plus")
     cap = _by_name(registry.probe_images(), "qwen-image")
     assert cap.state == State.AVAILABLE
