@@ -22,6 +22,9 @@ def main() -> None:
     parser.add_argument("work_dir", nargs="?", default=None,
                         help="output/<name> dir (default: the most recent one)")
     parser.add_argument("--scene", type=int, default=None, help="Regenerate only this scene index (0-based)")
+    parser.add_argument("--redo", action="store_true",
+                        help="Regenerate scenes whose image already exists "
+                             "(default: skip them, so a re-run only fills gaps)")
     parser.add_argument("--backend", default=None,
                         help="Image backend (.env: IMAGE_BACKEND; qwen | openai | "
                              "flux | stock | placeholder)")
@@ -68,7 +71,8 @@ def main() -> None:
         path.write_bytes(data)
         print(f"regenerated {path} via {used.name}")
     else:
-        generate_images(plan, out_dir, backend=args.backend, work_dir=work_dir)
+        generate_images(plan, out_dir, backend=args.backend, work_dir=work_dir,
+                        redo=args.redo)
 
 
 if __name__ == "__main__":

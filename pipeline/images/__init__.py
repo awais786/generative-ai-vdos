@@ -346,11 +346,29 @@ def generate_scene_image(
     raise RuntimeError(f"image generation failed for scene {index + 1}: {last_error}")
 
 
+def _usable(path: Path) -> bool:
+    """An image already on disk that we can trust.
+
+    The size check is load-bearing: a crash during write_bytes leaves a
+    zero-byte file, and is_file() alone would call that scene done and skip it
+    on every future run.
+    """
+    return path.is_file() and path.stat().st_size > 0
+
+
 def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None,
-                    work_dir: Path | None = None) -> list[Path]:
+                    work_dir: Path | None = None, redo: bool = False) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     primary = get_provider(backend)
-    drawn = sum(1 for s in plan.scenes if not s.compose)
+    # Only the scenes that actually need work. A stage that died on scene 6 of 8
+    # used to re-bill all eight on the next run, because run.py records
+    # completion per stage and nothing here checked the disk.
+    pending = {i for i, s in enumerate(plan.scenes)
+               if not s.compose
+               and (redo or not _usable(out_dir / f"scene_{i:02d}.png"))}
+    drawn = len(pending)
+    already = sum(1 for i, s in enumerate(plan.scenes)
+                  if not s.compose and i not in pending)
     # Reference portraits are billed like any other image. Count only the ones
     # not already cached on disk, so a re-run reports what it will actually spend.
     ref_dir = out_dir / "refs"
@@ -360,6 +378,12 @@ def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None,
     for line in selection_report(primary, forced=backend is not None,
                                  scenes=drawn, refs=pending_refs):
         print(line)
+    if already:
+        # Never skip silently: the pipeline is making a spending decision, and
+        # the flag that reverses it should be visible where it is wanted.
+        print(report.note_line(
+            f"{report.plural(already, 'scene')} already generated — "
+            f"pass --redo to regenerate them"))
     if plan.characters:
         print("  images: character check (same description substituted in every scene):")
         for i, scene in enumerate(plan.scenes):
@@ -376,6 +400,9 @@ def generate_images(plan: ShotPlan, out_dir: Path, backend: str | None = None,
         if plan.scenes[i].compose:
             print(f"  images: scene {i + 1}/{len(plan.scenes)} skipped "
                   f"(compose: {plan.scenes[i].compose.template})")
+            continue
+        if i not in pending:
+            paths.append(out_dir / f"scene_{i:02d}.png")
             continue
         data, used = generate_scene_image(plan, i, primary,
                                           fallback=backend is None, char_refs=refs,

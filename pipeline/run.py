@@ -65,6 +65,9 @@ def main() -> None:
     parser.add_argument("--music-dir", default="music")
     parser.add_argument("--name", default=None,
                         help="Output folder name (default: slug of the topic text)")
+    parser.add_argument("--redo", action="store_true",
+                        help="Regenerate images that already exist "
+                             "(default: skip them, so a re-run only fills gaps)")
     parser.add_argument("--image-backend", default=None,
                         help="Force an image provider (.env: IMAGE_BACKEND; see "
                              "pipeline/images: flux-schnell, gpt-image-1, pexels, placeholder)")
@@ -160,7 +163,7 @@ def main() -> None:
         from .images import generate_images
         print("stage: images")
         generate_images(plan, work_dir / "images", backend=args.image_backend,
-                        work_dir=work_dir)
+                        work_dir=work_dir, redo=args.redo)
         state["done"].append("images")
         save_state(work_dir, state)
     if args.until == "images":
