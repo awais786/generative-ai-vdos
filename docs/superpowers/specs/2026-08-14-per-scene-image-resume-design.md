@@ -46,10 +46,51 @@ A re-run of the images stage costs only the scenes that are actually missing.
 - **The web app.** It drives `generate_scene_image` per scene and tracks
   `Scene.media_status` in the database, so it already resumes per scene. This
   gap is CLI-only.
-- **Changing the fallback rule.** Whether an explicit `--backend` should still
-  fall back to *free* providers is a real question, and a separate one.
+
+**Removed from Non-goals.** An earlier draft treated the fallback rule as
+separable, framed as "falling back to free providers". That framing was wrong:
+**there are no free generators.** qwen bills ~$0.025/image after its trial
+quota, flux ~$0.003 past its free tier, pexels returns stock photos rather than
+your scene, and placeholder draws gradients. Falling back therefore never means
+"cheaper" — it means "not the picture you asked for". The rule is designed
+below rather than deferred.
 
 ## Design
+
+### Fail instead of silently drawing gradients
+
+`get_provider(None)` walks `PROVIDERS` and returns the first `available()` one.
+`PlaceholderProvider.available()` is unconditionally `True`, so **with no keys
+configured at all, auto-pick returns `placeholder` and the run completes** — a
+full video of gradient frames, no error, discovered on playback after the plan
+was paid for and every downstream stage ran.
+
+The same applies per scene: with fallback on, a scene that fails on a real
+provider falls through to `placeholder`, producing a video that is part
+illustration and part gradient. That is worse than a failure, because it looks
+like output.
+
+`placeholder` becomes unreachable by auto-pick and by the fallback chain,
+exactly as `gpt-image-1` already is — for the opposite reason. `AUTO_EXCLUDE`
+means "too expensive to choose silently"; this is "too useless to choose
+silently". Both are only ever reached by an explicit `--backend`.
+
+With nothing configured, `get_provider(None)` raises and names what to set:
+
+```
+no image backend configured — set one of:
+  DASHSCOPE_API_KEY + QWEN_IMAGE_MODEL   (qwen-image)
+  REPLICATE_API_TOKEN + REPLICATE_IMAGE_MODEL   (flux-schnell)
+  OPENAI_API_KEY + OPENAI_IMAGE_MODEL    (gpt-image-1, paid, needs --backend)
+run `python -m pipeline.registry` to see what this machine has.
+```
+
+**This is only reasonable because of the resume work below.** Today a failure
+loses every scene generated before it, which is why degrading to a gradient is
+the lesser evil. Once a re-run costs only the missing scenes, failing early is
+free — the two halves of this spec depend on each other.
+
+`make example` is unaffected: it passes `--backend placeholder` explicitly.
 
 ### Pending list instead of a full loop
 
@@ -105,12 +146,16 @@ consults the skip.
 
 ## Error handling
 
-Unchanged. A scene that raises still propagates and still fails the stage. The
-only difference is that the next run does not re-bill what already succeeded.
+A scene that raises propagates and fails the stage — now including a scene that
+would previously have degraded to a gradient. The next run re-bills only what is
+missing, so the cost of failing is one scene rather than the whole video.
+
+A run with no image backend configured fails **before** generating anything,
+rather than after producing a gradient video.
 
 ## Testing
 
-All four run offline and free with `--backend placeholder`:
+All seven run offline and free — no API keys, no spend:
 
 1. **Partial resume** — 3 of 8 images present on disk generates exactly 5.
 2. **The banner counts pending** — with 3 present, the header says 5 images, not
@@ -118,6 +163,17 @@ All four run offline and free with `--backend placeholder`:
 3. **`--redo` regenerates all 8** even when every file is present.
 4. **A zero-byte file counts as missing** — the trap `is_file()` alone falls
    into.
+5. **No keys configured raises**, naming at least one backend and its env vars,
+   rather than returning `placeholder`.
+6. **`--backend placeholder` still works**, so `make example` and free offline
+   testing are unaffected.
+7. **A failing scene does not degrade to a gradient** — with a real backend
+   forced or auto-picked, a provider error propagates.
+
+Two existing tests assert the old behaviour and are updated rather than deleted:
+`test_get_provider_none_autopicks_first_available` and the placeholder assertion
+in `test_image_provider_selection.py`. They pinned "auto-pick returns
+placeholder", which is precisely the behaviour being removed.
 
 ## Success criteria
 
@@ -125,3 +181,5 @@ All four run offline and free with `--backend placeholder`:
 2. The announced image count equals the number actually generated, always.
 3. `--redo` reproduces today's behaviour exactly.
 4. `--scene N` still regenerates that scene regardless of what is on disk.
+5. A machine with no image keys fails immediately with an actionable message,
+   instead of producing a gradient video.
