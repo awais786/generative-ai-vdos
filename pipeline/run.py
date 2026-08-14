@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from .env import load_env
+from .plan_check import check_plan
 from .schema import ShotPlan
 
 load_env()
@@ -148,6 +149,9 @@ def main() -> None:
     if args.until == "plan":
         print(f"stopped after plan (--until): review {plan_file}")
         return
+
+    for issue in check_plan(plan):
+        print(report.warning(issue))
 
     # ---- Review gate ----
     if not args.approve and "approved" not in state["done"]:
