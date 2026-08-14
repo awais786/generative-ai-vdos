@@ -22,6 +22,7 @@ from pathlib import Path
 
 from . import report
 from .env import load_env
+from .plan_check import check_plan
 from .schema import ShotPlan
 # Imported at module level (both are cheap, stdlib/pydantic only) so
 # _finalize_plan_artifacts resolves them as module attributes — that is what
@@ -236,6 +237,8 @@ def main() -> None:
         # would skip the plan stage.
         (work_dir / "state.json").write_text(json.dumps({"done": ["plan"]}, indent=2))
 
+    for issue in check_plan(plan):
+        print(report.warning(issue))
     print_plan(plan, work_dir)
 
 

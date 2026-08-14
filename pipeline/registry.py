@@ -34,6 +34,7 @@ class State:
     AVAILABLE = "available"
     MISSING = "missing"
     PAID = "paid"            # usable, but only via an explicit opt-in flag
+    EXPLICIT = "explicit"    # free and usable, but never auto-picked
     METERED = "metered"      # auto-pickable, but costs money past a free tier
     DISABLED = "disabled"    # turned off by policy, regardless of config
 
@@ -147,6 +148,16 @@ def probe_images() -> list[Capability]:
             caps.append(Capability("images", name, State.MISSING,
                                    f"{joined} not set",
                                    hint=f"set {joined} in .env"))
+            continue
+
+        if getattr(provider, "explicit_only", False):
+            # Configured, but never auto-picked — placeholder draws gradients,
+            # so a row reading plain "configured" would imply a run could land
+            # on it. Reporting what will actually happen is this module's job.
+            caps.append(Capability(
+                "images", name, State.EXPLICIT,
+                "free, but never auto-picked (gradients, not generated images)",
+                hint=f"use --backend {name} for a free offline test run"))
             continue
 
         state = State.METERED if name in METERED_BACKENDS else State.AVAILABLE
@@ -270,6 +281,7 @@ SYMBOLS = {
     State.AVAILABLE: "✓",
     State.MISSING: "✗",
     State.PAID: "$",
+    State.EXPLICIT: "→",
     State.METERED: "~",
     State.DISABLED: "⊘",
 }
@@ -277,7 +289,8 @@ SYMBOLS = {
 # States whose hint is remediation or a money warning the reader must see.
 # DISABLED belongs here: its hint is the money-rule warning, and omitting it
 # left the one such string in the table visible only in --json.
-HINT_STATES = (State.MISSING, State.PAID, State.METERED, State.DISABLED)
+HINT_STATES = (State.MISSING, State.PAID, State.EXPLICIT, State.METERED,
+               State.DISABLED)
 
 # Display order = pipeline stage order, so the table reads like a run.
 GROUP_LABELS = [
@@ -347,8 +360,8 @@ def render_table(caps: list[Capability]) -> str:
                 lines.append(f"{'':<15}   {'':<18} -> {cap.hint}")
     lines.append("")
     lines.append("Legend: ✓ available · ✗ unavailable · "
-                 "$ paid, explicit opt-in only · ~ free tier then paid, "
-                 "auto-pickable · ⊘ disabled by policy")
+                 "$ paid, explicit opt-in only · → free, explicit opt-in only · "
+                 "~ free tier then paid, auto-pickable · ⊘ disabled by policy")
     lines.append("API-backed entries are 'configured', not verified — a revoked "
                  "key still reads as configured, and nothing here is probed over "
                  "the network.")
