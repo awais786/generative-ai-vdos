@@ -91,3 +91,11 @@ If qwen still draws the unwanted trait (strong priors), regenerate just that sce
 ## Revising a plan
 
 `python -m pipeline.refine --change "..."` revises the latest plan (auto-polish and consistency_review run automatically on every new plan — never add manual `--polish` calls). After hand-editing the JSON, downstream stages pick it up as-is; only re-run stages whose inputs changed (e.g. edited one scene's `media_prompt` → regenerate that image, keep the rest).
+
+## Writing the narration itself
+
+This file covers the plan's *structure*. For the words — how long a scene should
+be, what makes an opening line work, and what the TTS mangles — read the
+`scene-script` skill. Measured across 30 videos, the median scene is 10 words
+(4.0s spoken), the exact floor of the prompt's own 4-8s target, which is why
+finished videos run far shorter than intended.

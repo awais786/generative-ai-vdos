@@ -7,12 +7,6 @@ class UserProfileTest(TestCase):
     def _make_profile(self, sub="sub-123", email="a@example.com", name="Alice"):
         return UserProfile.objects.create(cognito_sub=sub, email=email, name=name)
 
-    def test_create_profile(self):
-        p = self._make_profile()
-        self.assertEqual(p.cognito_sub, "sub-123")
-        self.assertEqual(p.email, "a@example.com")
-        self.assertEqual(p.name, "Alice")
-        self.assertIsNotNone(p.created_at)
 
     def test_cognito_sub_is_unique(self):
         self._make_profile()

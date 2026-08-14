@@ -10,8 +10,9 @@ review run automatically — never add a manual polish call)
 **Produces:** `output/<name>/shot_plan.json`
 **Gate:** YES — show the plan and wait.
 
-For the plan's structure, fields, and how to author them, read the
-`shot-plan` skill. This file covers running the stage.
+For the plan's structure and fields read `shot-plan`; for the narration
+itself — length, the hook, and text the TTS can speak — read `scene-script`.
+Narration sets every scene's duration, so it is the field to get right here. This file covers running the stage.
 
 ## Before running
 

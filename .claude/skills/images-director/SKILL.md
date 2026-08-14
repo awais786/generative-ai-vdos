@@ -32,6 +32,21 @@ the output will be gradient placeholders, not images.
   `Character.negative`.
 - **Scene matches its narration beat.**
 
+## A failed stage is cheap to retry
+
+Re-running the stage regenerates **only the scenes whose image is missing** —
+a stage that died on scene 6 of 8 costs 3 images to finish, not 8. The header
+says how many it will actually generate and how many it skipped.
+
+To deliberately re-roll images you already have, pass `--redo`. Without it a
+re-run on a finished folder does nothing, by design: the default is the one
+that does not spend.
+
+**There is no free fallback.** If nothing is configured the stage fails
+immediately and names the env vars to set — it no longer degrades to gradient
+placeholders, which used to produce a whole video with no error. `--backend
+placeholder` still works when you actually want gradients.
+
 ## When one scene is wrong
 
 Regenerate that scene alone — do not re-run the whole stage and re-spend on

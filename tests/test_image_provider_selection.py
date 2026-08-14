@@ -7,12 +7,23 @@ import pipeline.images as images
 
 
 def test_get_provider_none_autopicks_first_available(monkeypatch):
-    # Force every provider but placeholder unavailable so the assertion doesn't
-    # depend on which API keys happen to be set in the ambient environment.
+    # Force everything but qwen unavailable so the assertion doesn't depend on
+    # which API keys happen to be set in the ambient environment.
+    for p in images.PROVIDERS:
+        monkeypatch.setattr(p, "available", (lambda: True) if p.name == "qwen-image"
+                            else (lambda: False))
+    assert images.get_provider(None).name == "qwen-image"
+
+
+def test_get_provider_none_refuses_to_settle_for_placeholder(monkeypatch):
+    """This assertion used to read `== "placeholder"`. Auto-pick terminating at
+    placeholder meant a machine with no keys produced a full gradient video and
+    no error — see tests/test_image_fail_fast.py."""
     for p in images.PROVIDERS:
         monkeypatch.setattr(p, "available", (lambda: True) if p.name == "placeholder"
                             else (lambda: False))
-    assert images.get_provider(None).name == "placeholder"
+    with pytest.raises(RuntimeError):
+        images.get_provider(None)
 
 
 def test_get_provider_none_never_autopicks_gpt_image(monkeypatch):
