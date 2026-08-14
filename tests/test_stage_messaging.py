@@ -257,8 +257,12 @@ def image_failure_lines(tmp_path, monkeypatch, capsys):
     # Reference portraits: provider.generate refuses.
     images.character_refs(plan, primary, tmp_path / "out")
     # Reference edit refused -> text-to-image, then the whole chain refuses too.
-    images.generate_scene_image(plan, 0, primary, fallback=True,
-                                char_refs={"pip": ref})
+    # It RAISES now: placeholder is no longer in the fallback chain, because a
+    # gradient in an otherwise real video looks like output. This test is about
+    # the lines printed on the way down, not about the outcome.
+    with pytest.raises(RuntimeError):
+        images.generate_scene_image(plan, 0, primary, fallback=True,
+                                    char_refs={"pip": ref})
     return [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
 
 

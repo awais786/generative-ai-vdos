@@ -14,6 +14,9 @@ class PlaceholderProvider(ImageProvider):
     # No env_required, so the inherited available() is always True — which is
     # what terminates the fallback chain.
     cost = "free (rendered locally)"
+    # Gradients are a diagnostic, not a picture. Reachable only via an
+    # explicit --backend placeholder (make example, offline testing).
+    explicit_only = True
 
     def generate(self, prompt: str, query: str | None = None,
                  negative: str | None = None, api_key=None,

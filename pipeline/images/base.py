@@ -43,6 +43,13 @@ class ImageProvider(ABC):
     #: provider module's own docstring — never estimate one.
     cost: str = "cost unknown"
 
+    #: True for a backend that must never be chosen unless it is named. Distinct
+    #: from `paid`: that one is a money rule, this one is about usefulness.
+    #: PlaceholderProvider draws gradients and is always "available", so auto-pick
+    #: silently returned it whenever nothing else was configured and the run
+    #: finished as a full gradient video with no error.
+    explicit_only: bool = False
+
     #: True for a backend that bills per image. Paid backends are excluded from
     #: auto-pick and from the fallback chain, and can only be chosen by an
     #: explicit --backend on the command line (money rule; see CLAUDE.md).

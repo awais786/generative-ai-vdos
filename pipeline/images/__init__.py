@@ -46,6 +46,13 @@ ALIASES = {alias: p.name for p in PROVIDERS for alias in p.aliases}
 #: explicit --backend on the command line (money rule; see CLAUDE.md).
 AUTO_EXCLUDE = {p.name for p in PROVIDERS if p.paid}
 
+#: Backends that auto-pick and the per-scene fallback chain must both skip.
+#: A superset of AUTO_EXCLUDE: paid ones are excluded on the money rule,
+#: placeholder because a gradient is not the picture that was asked for.
+#: Kept separate because AUTO_EXCLUDE also drives preflight's PAID row and the
+#: IMAGE_BACKEND guard, neither of which should apply to placeholder.
+NEVER_AUTO = {p.name for p in PROVIDERS if p.paid or p.explicit_only}
+
 #: What each backend costs, stated in the run header so a paid pick is never a
 #: surprise. Each figure is copied from the provider module's own docstring.
 #: A SNAPSHOT taken at import — a provider whose rate depends on a configurable
@@ -120,17 +127,35 @@ def selection_report(primary: ImageProvider, forced: bool,
     return lines
 
 
+def _no_backend_message() -> str:
+    """What to set, rather than only that something is missing.
+
+    Named vars beat a bare "not configured": preflight already knows them, and
+    a message that costs a round trip to act on is half a message.
+    """
+    lines = ["no image backend configured — set one of:"]
+    for p in PROVIDERS:
+        if p.name in NEVER_AUTO and not p.paid:
+            continue                      # placeholder: not a suggestion
+        if not p.requires:
+            continue
+        note = ", paid, needs --backend" if p.paid else ""
+        lines.append(f"  {p.requires}   ({p.name}{note})")
+    lines.append("run `python -m pipeline.registry` to see what this machine has.")
+    return "\n".join(lines)
+
+
 def get_provider(name: str | None = None, api_key=None) -> ImageProvider:
     if not name:
-        # Auto-pick: first available provider in priority order, skipping the paid
-        # gpt-image-1. PlaceholderProvider is always available, so this terminates
-        # (renders gradient placeholders when no image key is configured).
+        # Auto-pick: first available provider in priority order, skipping the
+        # paid ones and placeholder. This no longer terminates at placeholder —
+        # a machine with no keys used to get a full gradient video and no error,
+        # discovered on playback after the plan was paid for and every
+        # downstream stage had run. Failing here costs nothing by comparison.
         for p in PROVIDERS:
-            if p.name not in AUTO_EXCLUDE and p.available():
+            if p.name not in NEVER_AUTO and p.available():
                 return p
-        raise RuntimeError(
-            "no image backend available (placeholder should always be) — "
-            "check pipeline/images/__init__.py PROVIDERS")
+        raise RuntimeError(_no_backend_message())
     name = ALIASES.get(name.strip().lower(), name)
     for p in PROVIDERS:
         if p.name == name:
@@ -298,10 +323,12 @@ def generate_scene_image(
 
     chain = [primary]
     if fallback:
-        # Never fall through to the paid gpt-image-1 (money rule); it is only
-        # reachable when named explicitly as the primary (which disables fallback).
+        # Never fall through to a paid backend (money rule) or to placeholder:
+        # a gradient dropped into an otherwise real video looks like output, so
+        # nobody investigates it. Both are reachable only when named explicitly
+        # as the primary, which disables fallback anyway.
         chain += [p for p in PROVIDERS
-                  if p is not primary and p.name not in AUTO_EXCLUDE and p.available()]
+                  if p is not primary and p.name not in NEVER_AUTO and p.available()]
     last_error = None
     for provider in chain:
         try:
