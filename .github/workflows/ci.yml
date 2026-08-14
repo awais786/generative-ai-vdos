@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Cancel superseded runs for the same ref (e.g. rapid pushes to a PR branch).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Pipeline + backend tests
+    runs-on: ubuntu-latest
+    env:
+      # Pin the interpreter to the project's target (requires-python >=3.13) so
+      # uv resolves deterministically rather than grabbing the newest on the runner.
+      UV_PYTHON: "3.13"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      # --all-extras, matching every Makefile target. A bare `uv run` re-syncs
+      # WITHOUT extras and uninstalls replicate/onnxruntime between steps, so
+      # every later step uses --no-sync to reuse exactly this environment.
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      # ffmpeg with libass: the assembly tests mock the subprocess calls, but
+      # pipeline.registry probes for the binary and the subtitles filter.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      # Fonts: without one, _FONT is None and the burned-in text tests skip
+      # rather than run. Installing DejaVu means they actually execute on CI.
+      - name: Install fonts
+        run: sudo apt-get install -y fonts-dejavu-core
+
+      # The WHOLE suite. The previous workflow ran two files — 3 tests of 255 —
+      # which is a green badge over 1% of the suite.
+      - name: Pipeline tests
+        run: uv run --no-sync python -m pytest tests/ -q
+
+      # Auto-selects config.settings.test → InMemoryStorage, sqlite, dummy
+      # Cognito. No AWS credentials or external services needed.
+      - name: Backend tests
+        run: uv run --no-sync python backend/manage.py test apps
+
+      # Preflight must at least run and exit 0 on a machine with no API keys.
+      - name: Preflight smoke test
+        run: uv run --no-sync python -m pipeline.registry
