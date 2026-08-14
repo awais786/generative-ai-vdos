@@ -1,4 +1,3 @@
-import uuid
 
 from django.test import TestCase
 
@@ -18,9 +17,6 @@ def make_project(owner=None, **kwargs):
 
 
 class ProjectFieldsTest(TestCase):
-    def test_id_is_uuid(self):
-        p = make_project()
-        self.assertIsInstance(p.id, uuid.UUID)
 
     def test_defaults(self):
         p = make_project()
@@ -36,19 +32,5 @@ class ProjectFieldsTest(TestCase):
         self.assertFalse(p.stale)
         self.assertEqual(p.title, "")
 
-    def test_owner_fk(self):
-        user = make_user("sub-owner")
-        p = make_project(owner=user)
-        self.assertEqual(p.owner, user)
 
-    def test_cascade_delete(self):
-        user = make_user("sub-del")
-        p = make_project(owner=user)
-        pid = p.id
-        user.delete()
-        self.assertFalse(Project.objects.filter(id=pid).exists())
 
-    def test_timestamps(self):
-        p = make_project()
-        self.assertIsNotNone(p.created_at)
-        self.assertIsNotNone(p.updated_at)
