@@ -46,3 +46,12 @@ those files; a missing one changes the whole timeline.
 ffmpeg errors are long; the useful part is the last few lines. Report the
 actual error. Common causes, in order: missing libass, a scene missing its
 mp3, and unescaped characters in drawtext text.
+
+## After it renders
+
+`final.mp4` existing is not the same as the video being good. Read the
+`final-video-qa` skill and run its checklist before showing it to anyone: every
+scene has audio, captions burned in, cards rendered, duration inside 4-8s per
+scene, and the music matched its mood rather than falling back at random.
+
+Re-assembly is free, so there is no reason to ship a video that fails it.

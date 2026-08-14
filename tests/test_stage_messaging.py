@@ -84,11 +84,14 @@ def test_music_report_warns_naming_the_missing_folder_and_the_moods_that_exist(
     monkeypatch.chdir(tmp_path)
     make_music_tree(tmp_path / "music",
                     {"calm": [], "theft": ["robbery.mp3"], "upbeat": ["u.mp3"]})
-    lines = music_report(choose_music(Path("music"), "inspiring"))
+    # A mood with no folder AND no alias — "inspiring" now resolves to upbeat,
+    # which is the point of MOOD_ALIASES; this test is about the case that
+    # genuinely cannot be matched.
+    lines = music_report(choose_music(Path("music"), "klezmer"))
     text = "\n".join(lines)
     warnings = [ln for ln in lines if ln.startswith("warning")]
     assert warnings, f"a random-mood fallback must warn, got:\n{text}"
-    assert "no music/inspiring/ folder" in text         # names the missing folder
+    assert "no music/klezmer/ folder" in text           # names the missing folder
     assert "theft, upbeat" in text                       # lists the moods that do exist
     assert "calm" not in text.split("moods available")[1]  # empty folder is not a mood
     # ...and still says what it actually picked (a random one of the two moods).
@@ -290,3 +293,14 @@ def test_every_reported_line_is_short_and_single_line(tmp_path, monkeypatch, bui
         assert "\n" not in ln
         assert "\x1b" not in ln
         assert len(ln) <= 120, ln
+
+
+def test_an_aliased_mood_does_not_warn(tmp_path, monkeypatch):
+    """`inspiring` was the most common mood in the corpus and had no folder, so
+    every one of those videos warned and drew a random track. Resolved through
+    MOOD_ALIASES it is a real match, and a real match must be quiet."""
+    monkeypatch.chdir(tmp_path)
+    make_music_tree(tmp_path / "music", {"upbeat": ["u.mp3"], "sad": ["s.mp3"]})
+    lines = music_report(choose_music(Path("music"), "inspiring"))
+    assert not [ln for ln in lines if ln.startswith("warning")], "\n".join(lines)
+    assert "upbeat/u.mp3" in lines[0]
